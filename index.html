@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Overblik</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Overblik">
+<meta name="theme-color" content="#F3F4F1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15181A" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one phone-width column. Capture on top, today's timeline, next-up per block, stones, backlog. */
+:root {
+  --bg: #F3F4F1; --surface: #FFFFFF; --surface-2: #E9EBE6; --fg: #1A1D1B; --fg-2: #5B615D; --fg-3: #8A908B; --line: #D6D9D3;
+  --accent: #C2470F; --accent-fg: #FFFFFF;
+  --praktisk: #2F5FB3; --hus: #9A6A0E; --fremtid: #6B45A8; --body: #3A8B5C; --quiet: #7A7F7B; --work: #B9BDB8;
+  --ok: #3A8B5C; --warn: #B8860B; --bad: #B2371F;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #15181A; --surface: #1E2224; --surface-2: #272C2E; --fg: #ECEEEA; --fg-2: #A7ADA8; --fg-3: #767C77; --line: #333A3C;
+  --accent: #E8773F; --accent-fg: #1A1D1B; --praktisk: #6E96DC; --hus: #D0A044; --fremtid: #A88BD8; --body: #67B585; --quiet: #9AA09B; --work: #4A5052;
+  --ok: #67B585; --warn: #D0A044; --bad: #E07A5F; color-scheme: dark; } }
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-top: calc(12px + env(safe-area-inset-top, 0px)); padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+  -webkit-tap-highlight-color: transparent; }
+.wrap { max-width: 520px; margin: 0 auto; display: grid; gap: 22px; }
+h1, h2 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.1; }
+h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+header .sub { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
+.status { display: inline-flex; align-items: center; gap: 6px; font: 500 11px/1 var(--font-mono); letter-spacing: 0.04em; color: var(--fg-2);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; white-space: nowrap; }
+.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--fg-3); }
+.status.ok::before { background: var(--ok); } .status.warn::before { background: var(--warn); } .status.bad::before { background: var(--bad); }
+
+.capture { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 10px; }
+.capture form { display: flex; gap: 8px; }
+.capture input { flex: 1; min-width: 0; font: 16px/1.3 var(--font-body); color: var(--fg); background: var(--surface-2); border: 1px solid transparent; border-radius: 8px; padding: 11px 12px; }
+.capture input::placeholder { color: var(--fg-3); }
+.capture .go { background: var(--accent); color: var(--accent-fg); border-radius: 8px; padding: 0 16px; font-weight: 600; }
+.chips { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.chips .hint { font-size: 12px; color: var(--fg-3); margin-right: 2px; }
+.chip { font-size: 12.5px; font-weight: 500; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2); display: inline-flex; align-items: center; gap: 6px; }
+.chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.chip[aria-pressed="true"] { border-color: var(--c); color: var(--fg); background: color-mix(in srgb, var(--c) 10%, transparent); }
+.chip.praktisk { --c: var(--praktisk); } .chip.hus { --c: var(--hus); } .chip.fremtid { --c: var(--fremtid); }
+
+.sec { display: grid; gap: 8px; }
+.sec .head { display: flex; justify-content: space-between; align-items: baseline; }
+.sec .count { font-size: 12px; color: var(--fg-3); }
+.tl { list-style: none; margin: 0; padding: 0; display: grid; }
+.tl li { display: grid; grid-template-columns: 52px 3px 1fr; column-gap: 12px; min-height: 34px; }
+.tl .t { font-family: var(--font-mono); font-size: 12.5px; color: var(--fg-2); font-variant-numeric: tabular-nums; padding-top: 7px; }
+.tl .bar { background: var(--c, var(--work)); border-radius: 2px; margin: 2px 0; }
+.tl .body { padding: 6px 0 8px; border-bottom: 1px solid var(--line); min-width: 0; }
+.tl li:last-child .body { border-bottom: 0; }
+.tl .name { font-weight: 500; }
+.tl .meta { font-size: 12.5px; color: var(--fg-2); }
+.tl .work .name { color: var(--fg-2); font-weight: 400; }
+.tl .past { opacity: 0.55; }
+.tl .now .name::after { content: "now"; font: 500 10px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); margin-left: 8px; vertical-align: middle; }
+.fyi { font-size: 12.5px; color: var(--fg-3); padding-left: 67px; }
+.fyi b { font-weight: 500; color: var(--fg-2); }
+.src { font-size: 11.5px; color: var(--fg-3); font-family: var(--font-mono); }
+
+#groups, #backlog { display: grid; gap: 22px; }
+.group .gh { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 0 0 6px; border-bottom: 2px solid var(--c); }
+.group .gh .name { font-family: var(--font-display); font-weight: 600; font-size: 15px; color: var(--c); }
+.group .gh .when { font-family: var(--font-mono); font-size: 12px; color: var(--fg-2); text-align: right; font-variant-numeric: tabular-nums; }
+.group.praktisk { --c: var(--praktisk); } .group.hus { --c: var(--hus); } .group.fremtid { --c: var(--fremtid); }
+.items { list-style: none; margin: 0; padding: 0; }
+.item { display: grid; grid-template-columns: 22px 1fr auto; column-gap: 10px; align-items: start; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.item:last-child { border-bottom: 0; }
+.item .box { width: 18px; height: 18px; margin-top: 2px; border: 1.5px solid var(--fg-3); border-radius: 5px; display: grid; place-items: center; }
+.item .box svg { width: 12px; height: 12px; display: none; }
+.item .txt { text-align: left; min-width: 0; overflow-wrap: anywhere; }
+.item .txt small { display: block; font-size: 12px; color: var(--fg-3); }
+.item .min { font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); padding-top: 3px; font-variant-numeric: tabular-nums; }
+.item.done .txt { text-decoration: line-through; color: var(--fg-3); }
+.item.done .box { background: var(--c); border-color: var(--c); }
+.item.done .box svg { display: block; stroke: var(--accent-fg); }
+.item.done .min { visibility: hidden; }
+.item.pending .txt small::after { content: " · not synced"; color: var(--warn); }
+.fill { height: 4px; background: var(--surface-2); border-radius: 2px; margin: 8px 0 2px; overflow: hidden; }
+.fill i { display: block; height: 100%; background: var(--c); border-radius: 2px; }
+.fill-l { font-size: 11.5px; color: var(--fg-3); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.empty { color: var(--fg-3); font-size: 13px; padding: 10px 0; }
+.backlog .group .gh { border-bottom-width: 1px; border-color: var(--line); }
+.backlog .group .gh .name { color: var(--fg-2); font-size: 14px; }
+.backlog .item { padding: 7px 0; }
+.backlog .item .txt { color: var(--fg-2); font-size: 14px; }
+
+.stone-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.stone { display: grid; grid-template-columns: 26px 1fr auto; column-gap: 10px; align-items: baseline; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.stone .n { font-family: var(--font-display); font-weight: 600; font-size: 18px; color: var(--quiet); line-height: 1; }
+.stone .txt { min-width: 0; overflow-wrap: anywhere; }
+.stone .txt small { display: block; font-size: 12px; color: var(--fg-3); }
+.stone .w { font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+
+.setup { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 10px; }
+.setup label { display: grid; gap: 4px; font-size: 12.5px; color: var(--fg-2); }
+.setup input { font: 15px var(--font-mono); color: var(--fg); background: var(--surface-2); border: 1px solid transparent; border-radius: 8px; padding: 9px 10px; width: 100%; }
+.setup .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.setup .btn { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-weight: 500; }
+.setup .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.setup p { margin: 0; font-size: 12.5px; color: var(--fg-3); }
+.setup .msg { font-family: var(--font-mono); font-size: 12px; min-height: 1em; }
+
+footer { font-size: 12px; color: var(--fg-3); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+footer button { text-decoration: underline; text-underline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) { .item .box, .chip { transition: background .15s, border-color .15s; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 id="h-date">Overblik</h1>
+      <div class="sub" id="h-sub"></div>
+    </div>
+    <button class="status" id="status" type="button" aria-label="Sync status, opens setup">not set up</button>
+  </header>
+
+  <section class="setup" id="setup" hidden aria-label="Setup">
+    <h2>Setup</h2>
+    <label>GitHub user <input id="s-owner" autocapitalize="off" autocorrect="off" placeholder="your-github-user"></label>
+    <label>Data repo (private) <input id="s-repo" autocapitalize="off" autocorrect="off" value="overblik-data"></label>
+    <label>Branch <input id="s-branch" autocapitalize="off" autocorrect="off" value="main"></label>
+    <label>Fine-grained token (Contents: read and write on that repo only) <input id="s-token" type="password" autocapitalize="off" autocorrect="off" placeholder="github_pat_…"></label>
+    <div class="row">
+      <button class="btn primary" type="button" id="s-save">Save and sync</button>
+      <button class="btn" type="button" id="s-close">Close</button>
+      <span class="msg" id="s-msg"></span>
+    </div>
+    <p>The token stays in this browser only. Items are written to <span class="mono">inbox.json</span> in the data repo on every change; the planner reads that file each morning. The week under Today comes from <span class="mono">template.json</span> in the same repo.</p>
+  </section>
+
+  <section class="capture" aria-label="Capture">
+    <form id="cap-form">
+      <input id="cap" type="text" autocomplete="off" enterkeyhint="done" placeholder="Capture… (Enter saves as Praktisk)" aria-label="New item">
+      <button class="go" type="submit" id="cap-go">Add</button>
+    </form>
+    <div class="chips" role="group" aria-label="Block">
+      <span class="hint">to</span>
+      <button class="chip praktisk" type="button" data-block="praktisk" aria-pressed="true">Praktisk</button>
+      <button class="chip hus" type="button" data-block="hus" aria-pressed="false">Hus</button>
+      <button class="chip fremtid" type="button" data-block="fremtid" aria-pressed="false">Fremtid</button>
+    </div>
+  </section>
+
+  <section class="sec" aria-label="Today">
+    <div class="head"><h2>Today</h2><span class="count mono" id="t-sum"></span></div>
+    <ul class="tl" id="tl"></ul>
+    <div class="fyi" id="fyi"></div>
+    <div class="src" id="t-src"></div>
+  </section>
+
+  <section class="sec" aria-label="Next up">
+    <div class="head"><h2>Next up</h2><span class="count mono" id="i-count"></span></div>
+    <div id="groups"></div>
+  </section>
+
+  <section class="sec" id="stones-sec" hidden aria-label="Tankebænken">
+    <div class="head"><h2>Tankebænken</h2><span class="count mono" id="st-count"></span></div>
+    <ol class="stone-list" id="stones"></ol>
+  </section>
+
+  <section class="sec backlog" aria-label="Backlog">
+    <div class="head"><h2>Backlog</h2><span class="count mono" id="b-count"></span></div>
+    <div id="backlog"></div>
+  </section>
+
+  <footer>
+    <span id="f-note"></span>
+    <button type="button" id="f-setup">setup</button>
+  </footer>
+</div>
+
+<script>
+"use strict";
+// =====================================================================
+// 1. Template week. Read from template.json in the data repo and cached in
+//    this browser; the shell holds no schedule of its own. Used for Today
+//    when no today.json card exists for today, and for block lengths.
+// =====================================================================
+const DAY = ["sun","mon","tue","wed","thu","fri","sat"];
+const BLOCKS = ["praktisk","hus","fremtid"];
+const DEFAULT_BLOCK_MIN = 60; // only until a template or a planner card says otherwise
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const toMin = s => { const [h,m]=s.split(":").map(Number); return h*60+m; };
+function validTemplate(t){
+  return !!t && Array.isArray(t.events)
+    && (t.anchor_a_monday==null || /^\d{4}-\d{2}-\d{2}$/.test(t.anchor_a_monday))
+    && t.events.every(r => r && typeof r.name==="string" && HHMM.test(r.start) && HHMM.test(r.end)
+      && Array.isArray(r.days) && r.days.every(d=>DAY.includes(d)) && (r.weeks==null || r.weeks==="A" || r.weeks==="B"));
+}
+function weekLetter(date){ // "A" or "B", counted in whole weeks from the template's anchor Monday; null without an anchor
+  if(!template || !template.anchor_a_monday) return null;
+  const [y,m,d]=template.anchor_a_monday.split("-").map(Number);
+  const mon=new Date(date); mon.setHours(0,0,0,0); mon.setDate(mon.getDate()-((mon.getDay()+6)%7));
+  const w=Math.round((mon-new Date(y,m-1,d))/864e5/7); return ((w%2)+2)%2===0 ? "A" : "B";
+}
+function isoWeek(d){ const x=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); const n=x.getUTCDay()||7; x.setUTCDate(x.getUTCDate()+4-n); const y=new Date(Date.UTC(x.getUTCFullYear(),0,1)); return Math.ceil(((x-y)/864e5+1)/7); }
+function rulesFor(date){ // template rules that apply on this date: weekday matches, and the A/B week if the rule names one
+  if(!template) return [];
+  const d=DAY[date.getDay()], wk=weekLetter(date);
+  return template.events.filter(r => r.days.includes(d) && (!r.weeks || r.weeks===wk));
+}
+function templateDay(date){
+  if(!template) return null;
+  const ev=rulesFor(date).map(r=>{ const e={start:r.start,end:r.end,name:r.name,kind:r.kind||"quiet",source:r.source||""}; if(r.block) e.block=r.block; return e; });
+  ev.sort((x,y)=>x.start.localeCompare(y.start));
+  return { date: ymd(date), week: weekLetter(date), events: ev, info: [], source: "template" };
+}
+function templateNext(block, from){ // next occurrence of a block in the template, looking two weeks ahead so A/B-only blocks are found
+  const nowMin=from.getHours()*60+from.getMinutes();
+  for(let i=0;i<15;i++){ const dt=new Date(from); dt.setDate(dt.getDate()+i);
+    const slots=rulesFor(dt).filter(r=>r.kind==="block"&&r.block===block).sort((x,y)=>x.start.localeCompare(y.start));
+    for(const r of slots){ if(i===0 && nowMin>=toMin(r.end)) continue;
+      const day = i===0?"Today":i===1?"Tomorrow":dt.toLocaleDateString("en-GB", i<=7?{weekday:"short"}:{weekday:"short",day:"numeric",month:"short"});
+      return { label:day+" "+r.start, minutes:toMin(r.end)-toMin(r.start) }; } }
+  return null;
+}
+function nextBlock(block, from, card){
+  // Prefer the card's forward view if it carries one; else the template.
+  const tpl=templateNext(block, from);
+  if(card && Array.isArray(card.next)){ const n=card.next.find(x=>x.block===block); if(n) return { label:n.label, minutes:n.minutes||(tpl&&tpl.minutes)||DEFAULT_BLOCK_MIN }; }
+  return tpl;
+}
+
+// =====================================================================
+// 2. State: items (inbox.json), cards, settings
+// =====================================================================
+const LS = { items:"overblik.items", cfg:"overblik.cfg", meta:"overblik.meta", tpl:"overblik.tpl" };
+const ls = { get(k,f){ try{ const v=localStorage.getItem(k); return v==null?f:JSON.parse(v);}catch(e){return f;} }, set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
+let items = ls.get(LS.items, []);          // [{id,text,block,created,updated,done}]
+let cfg   = ls.get(LS.cfg, {owner:"",repo:"overblik-data",branch:"main",token:""});
+let meta  = ls.get(LS.meta, {sha:null,lastSync:null,dirty:false});
+let template = ls.get(LS.tpl, null); if(!validTemplate(template)) template=null; // last good template.json, kept for offline use
+let templateError=false;                   // true when the repo copy failed validation on the last sync
+let todayCard=null, stonesCard=null, block="praktisk";
+const now = ()=>new Date();
+function ymd(d){ const z=n=>String(n).padStart(2,"0"); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`; }
+const minutesOf = t => { const m=/\((\d+)\s*m\)/i.exec(t); return m?+m[1]:10; };
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+function saveLocal(){ ls.set(LS.items, items); ls.set(LS.meta, meta); }
+
+// =====================================================================
+// 3. GitHub sync (Contents API). Merge by id, newest `updated` wins.
+// =====================================================================
+const api = () => `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/`;
+const headers = () => ({ "Authorization":`Bearer ${cfg.token}`, "Accept":"application/vnd.github+json", "X-GitHub-Api-Version":"2022-11-28" });
+const configured = () => !!(cfg.owner && cfg.repo && cfg.token);
+function b64encode(str){ const bytes=new TextEncoder().encode(str); let bin=""; for(let i=0;i<bytes.length;i+=0x8000) bin+=String.fromCharCode(...bytes.subarray(i,i+0x8000)); return btoa(bin); }
+function b64decode(b64){ const bin=atob(b64.replace(/\s/g,"")); const bytes=Uint8Array.from(bin,c=>c.charCodeAt(0)); return new TextDecoder().decode(bytes); }
+async function ghGet(path){
+  const r = await fetch(api()+path+`?ref=${encodeURIComponent(cfg.branch)}&t=${Date.now()}`, { headers: headers(), cache:"no-store" });
+  if(r.status===404) return { missing:true };
+  if(!r.ok) throw new Error(`GET ${path}: ${r.status}`);
+  const j = await r.json(); return { sha:j.sha, text:b64decode(j.content) };
+}
+async function ghPut(path, text, sha, message){
+  const body = { message, content:b64encode(text), branch:cfg.branch }; if(sha) body.sha=sha;
+  const r = await fetch(api()+path, { method:"PUT", headers:{...headers(),"Content-Type":"application/json"}, body:JSON.stringify(body) });
+  if(r.status===409 || r.status===422) return { conflict:true };
+  if(!r.ok) throw new Error(`PUT ${path}: ${r.status}`);
+  const j = await r.json(); return { sha:j.content.sha };
+}
+function mergeItems(local, remote){
+  const m=new Map(); [...remote, ...local].forEach(it=>{ const cur=m.get(it.id); if(!cur || (it.updated||"")>(cur.updated||"")) m.set(it.id,it); });
+  return [...m.values()];
+}
+function serialize(list){ const sorted=[...list].sort((a,b)=>a.created.localeCompare(b.created)||a.id.localeCompare(b.id)); return JSON.stringify({ version:1, updated:new Date().toISOString(), items:sorted }, null, 1)+"\n"; }
+let syncing=false, syncAgain=false;
+async function sync(reason){
+  if(!configured()){ setStatus("not set up","warn"); return; }
+  if(syncing){ syncAgain=true; return; } syncing=true; setStatus("syncing…","");
+  try{
+    for(let attempt=0; attempt<3; attempt++){
+      const remote = await ghGet("inbox.json");
+      let remoteItems=[]; if(!remote.missing){ try{ remoteItems=JSON.parse(remote.text).items||[]; }catch(e){ remoteItems=[]; } }
+      const merged = mergeItems(items, remoteItems);
+      const changed = serialize(merged) !== (remote.missing ? "" : serialize(remoteItems));
+      items = merged;
+      if(changed || remote.missing){
+        const put = await ghPut("inbox.json", serialize(merged), remote.missing?null:remote.sha, `overblik: ${reason||"sync"} (${merged.filter(i=>!i.done).length} open)`);
+        if(put.conflict) continue; // someone else wrote in between; re-read and merge again
+        meta.sha = put.sha;
+      } else meta.sha = remote.sha;
+      meta.dirty=false; meta.lastSync=new Date().toISOString(); saveLocal(); break;
+    }
+    await loadCards();
+    setStatus("synced "+clock(meta.lastSync),"ok");
+  }catch(e){
+    meta.dirty=true; saveLocal();
+    setStatus(navigator.onLine? "sync failed" : "offline", "bad");
+    console.warn(e);
+  }finally{ syncing=false; render(); if(syncAgain){ syncAgain=false; sync("retry"); } }
+}
+async function loadCards(){
+  await Promise.all([
+    // today.json: written by the planner each morning. Used only if it is for today.
+    (async()=>{ try{ const r=await ghGet("today.json"); if(!r.missing){ const c=JSON.parse(r.text); todayCard = (c && c.date===ymd(now()))? c : null; } }catch(e){ todayCard=null; } })(),
+    // tankebaenken.json: written by the Tankebænken app. Optional.
+    (async()=>{ try{ const r=await ghGet("tankebaenken.json"); stonesCard = r.missing? null : JSON.parse(r.text); }catch(e){ stonesCard=null; } })(),
+    // template.json: the template week, edited by hand. A copy that fails validation never replaces the last good one.
+    (async()=>{ try{ const r=await ghGet("template.json"); if(r.missing) return; let t=null; try{ t=JSON.parse(r.text); }catch(e){}
+      if(validTemplate(t)){ template=t; templateError=false; ls.set(LS.tpl,t); } else templateError=true; }catch(e){ /* unreachable: keep the cached copy */ } })(),
+  ]);
+}
+const clock = iso => iso ? new Date(iso).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : "";
+function setStatus(text, cls){ const s=document.getElementById("status"); s.textContent=text; s.className="status "+(cls||""); }
+
+// =====================================================================
+// 4. Render
+// =====================================================================
+function render(){
+  const n=now(); const day = todayCard || templateDay(n) || { week:null, events:[], info:[] };
+  document.getElementById("h-date").textContent = n.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
+  const wk = day.week || weekLetter(n), wkNote = wk && template && template.week_notes && template.week_notes[wk];
+  document.getElementById("h-sub").textContent = `Week ${isoWeek(n)}` + (wk ? ` · ${wk} week` : "") + (wkNote ? ` · ${wkNote}` : "");
+  const nowMin=n.getHours()*60+n.getMinutes();
+  const tl=document.getElementById("tl"); tl.innerHTML=""; let planned=0;
+  (day.events||[]).forEach(e=>{
+    const li=document.createElement("li"); const s=toMin(e.start), en=toMin(e.end);
+    const colour = e.kind==="block" ? (BLOCKS.includes(e.block)?e.block:"praktisk") : e.kind==="sport"||e.kind==="body" ? "body" : e.kind==="work" ? "work" : "quiet";
+    li.className=(e.kind==="work"?"work ":"")+(en<=nowMin?"past":(s<=nowMin&&nowMin<en?"now":""));
+    li.style.setProperty("--c",`var(--${colour})`);
+    if(e.kind!=="work") planned+=en-s;
+    li.innerHTML=`<span class="t">${esc(e.start)}<br>${esc(e.end)}</span><span class="bar"></span><div class="body"><div class="name">${esc(e.name)}${e.session?` <span class="mono" style="font-weight:400;color:var(--fg-2)">${esc(e.session)}</span>`:""}</div><div class="meta">${esc(e.source||"")}</div></div>`;
+    tl.appendChild(li);
+  });
+  document.getElementById("t-sum").textContent = (day.events||[]).length ? `${Math.round(planned/60*10)/10} h in blocks` : "";
+  document.getElementById("fyi").innerHTML = (day.info&&day.info.length)?`<b>FYI</b> ${day.info.map(esc).join(" · ")}`:"";
+  document.getElementById("t-src").textContent = (todayCard ? `from planner card, ${clock(todayCard.generated)}`
+    : template ? "from template.json; the planner card replaces this once the morning run writes today.json"
+    : configured() ? "No template.json in the data repo yet, so there is no week to show."
+    : "Set up the data repo to see your week here.")
+    + (templateError ? " · template.json in the repo has a format error" + (template ? ", showing the last good copy" : "") : "");
+
+  const g=document.getElementById("groups"); g.innerHTML=""; const bl=document.getElementById("backlog"); bl.innerHTML="";
+  let nextCount=0, backCount=0; const today=ymd(n);
+  const label=b=>b[0].toUpperCase()+b.slice(1);
+  const pending=it=>meta.dirty && (!meta.lastSync || (it.updated||"")>meta.lastSync);
+  const row=(it,m)=>`<li class="item${it.done?" done":""}${pending(it)?" pending":""}">
+      <button class="box" aria-label="Mark done" data-id="${esc(it.id)}"><svg viewBox="0 0 12 12" fill="none" stroke-width="2"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg></button>
+      <button class="txt" data-id="${esc(it.id)}">${esc(it.text.replace(/\s*\(\d+\s*m\)/i,""))}<small>${it.created===today?"today":new Date(it.created).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</small></button>
+      <span class="min">${m} m</span></li>`;
+  BLOCKS.forEach(b=>{
+    const open=items.filter(i=>i.block===b&&!i.done).sort((x,y)=>x.created.localeCompare(y.created)||x.id.localeCompare(y.id));
+    const doneToday=items.filter(i=>i.block===b&&i.done&&(i.done.slice(0,10)===today));
+    const nb=nextBlock(b,n,todayCard); const cap=nb?nb.minutes:DEFAULT_BLOCK_MIN; let used=0; const fits=[], rolls=[];
+    open.forEach(it=>{ const m=minutesOf(it.text); if(used+m<=cap){used+=m;fits.push([it,m]);} else rolls.push([it,m]); });
+    if(fits.length||doneToday.length){
+      const sec=document.createElement("section"); sec.className="group "+b;
+      sec.innerHTML=`<div class="gh"><span class="name">${label(b)}</span><span class="when">${nb?nb.label+" · "+cap+" min":""}</span></div><ul class="items">${fits.map(([it,m])=>row(it,m)).join("")}${doneToday.map(it=>row(it,minutesOf(it.text))).join("")}</ul>
+        <div class="fill"><i style="width:${Math.min(100,used/cap*100)}%"></i></div><div class="fill-l">${used} of ${cap} min planned${rolls.length?` · ${rolls.length} waiting in backlog`:""}</div>`;
+      g.appendChild(sec); nextCount+=fits.length;
+    }
+    if(rolls.length){
+      const sec=document.createElement("section"); sec.className="group "+b;
+      sec.innerHTML=`<div class="gh"><span class="name">${label(b)}</span><span class="when">${rolls.reduce((a,[,m])=>a+m,0)} min</span></div><ul class="items">${rolls.map(([it,m])=>row(it,m)).join("")}</ul>`;
+      bl.appendChild(sec); backCount+=rolls.length;
+    }
+  });
+  if(!items.some(i=>!i.done)) g.innerHTML='<div class="empty">Nothing open. Type above and press Enter.</div>';
+  document.getElementById("i-count").textContent=`${nextCount} planned · ${items.filter(i=>i.done&&i.done.slice(0,10)===today).length} done today`;
+  document.getElementById("b-count").textContent=backCount?`${backCount} waiting`:"empty";
+  if(!backCount) bl.innerHTML='<div class="empty">Everything open fits in the next blocks.</div>';
+
+  const ss=document.getElementById("stones-sec");
+  if(stonesCard && Array.isArray(stonesCard.stones) && stonesCard.stones.length){
+    ss.hidden=false; document.getElementById("st-count").textContent=`top ${Math.min(3,stonesCard.stones.length)} stones`;
+    document.getElementById("stones").innerHTML = stonesCard.stones.slice(0,3).map((st,i)=>`<li class="stone"><span class="n">${i+1}</span><span class="txt">${esc(st.text)}<small>${esc(st.note||"")}</small></span><span class="w">${st.days!=null?st.days+" d":""}</span></li>`).join("");
+  } else ss.hidden=true;
+
+  document.getElementById("f-note").textContent = configured()
+    ? `${items.filter(i=>!i.done).length} open · ${cfg.owner}/${cfg.repo}` + (meta.dirty?" · changes waiting to sync":"")
+    : "Not connected: items stay in this browser until setup is done.";
+}
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+// =====================================================================
+// 5. Interactions
+// =====================================================================
+document.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>{ block=c.dataset.block; document.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed",String(x===c))); document.getElementById("cap").focus(); }));
+document.getElementById("cap-form").addEventListener("submit",e=>{
+  e.preventDefault(); const inp=document.getElementById("cap"); const text=inp.value.trim(); if(!text) return;
+  const ts=new Date().toISOString();
+  items.push({ id:uid(), text, block, created:ymd(now()), updated:ts, done:null }); meta.dirty=true; saveLocal(); inp.value=""; render();
+  block="praktisk"; document.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.block==="praktisk"))); inp.focus();
+  sync("add");
+});
+document.querySelector(".wrap").addEventListener("click",e=>{
+  const btn=e.target.closest("button[data-id]"); if(!btn) return;
+  const it=items.find(i=>i.id===btn.dataset.id); if(!it) return;
+  const ts=new Date().toISOString(); it.done = it.done ? null : ts; it.updated=ts; meta.dirty=true; saveLocal(); render(); sync(it.done?"done":"undo");
+});
+// setup panel
+const setup=document.getElementById("setup");
+function openSetup(){ setup.hidden=false; document.getElementById("s-owner").value=cfg.owner; document.getElementById("s-repo").value=cfg.repo; document.getElementById("s-branch").value=cfg.branch; document.getElementById("s-token").value=cfg.token; document.getElementById("s-msg").textContent=""; }
+document.getElementById("status").addEventListener("click",openSetup);
+document.getElementById("f-setup").addEventListener("click",openSetup);
+document.getElementById("s-close").addEventListener("click",()=>{ setup.hidden=true; });
+document.getElementById("s-save").addEventListener("click",async()=>{
+  cfg={ owner:document.getElementById("s-owner").value.trim(), repo:document.getElementById("s-repo").value.trim()||"overblik-data", branch:document.getElementById("s-branch").value.trim()||"main", token:document.getElementById("s-token").value.trim() };
+  ls.set(LS.cfg,cfg); const msg=document.getElementById("s-msg");
+  if(!configured()){ msg.textContent="user, repo and token are all needed"; return; }
+  msg.textContent="testing…"; await sync("setup");
+  msg.textContent = meta.dirty ? "could not reach the repo (check token scope and repo name)" : "connected"; if(!meta.dirty) setTimeout(()=>{ setup.hidden=true; },600);
+});
+window.addEventListener("online",()=>sync("online"));
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) sync("resume"); });
+setInterval(render, 60000);
+
+render();
+if(configured()) sync("load"); else setStatus("not set up","warn");
+window.addEventListener("load",()=>{ if(configured()) try{ document.getElementById("cap").focus(); }catch(e){} });
+</script>
+</body>
+</html>
