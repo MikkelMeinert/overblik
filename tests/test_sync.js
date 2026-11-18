@@ -1,5 +1,6 @@
 // Playwright test of Overblik against a mocked GitHub Contents API.
 // Run: node tests/test_sync.js        (exit code 0 = all checks passed)
+// Optional: SHOT_PLAN=/path/plan.png saves a screenshot of the first device with the evening plan loaded.
 // Optional: SHOT=/path/shot.png node tests/test_sync.js   saves a screenshot of the second device.
 // The template below is a made-up week. Never put the real one in this repo.
 const { chromium } = require('playwright');
@@ -152,13 +153,86 @@ const NOW = '2026-01-06T12:00:00+01:00'; // a Tuesday in an A week, Europe/Copen
     assert.deepStrictEqual(await names(p1), ['Wake', 'Desk', 'Praktisk']);
   });
 
+  // ---- the evening plan: tomorrow.json next to today's card
+  const TOMORROW = { date: '2026-01-07', week: 'A', generated: '2026-01-06T18:30:00+01:00', plan_id: '2026-01-07@x',
+    events: [{ start: '06:45', end: '07:45', name: 'Wake', kind: 'body', source: 'Cal · 60 min' }, { start: '08:00', end: '16:00', name: 'Desk', kind: 'work', source: 'office' },
+      { start: '18:30', end: '19:30', name: 'Praktisk', kind: 'block', block: 'praktisk', source: 'Cal · 60 min · moved from 16:30' }],
+    options: [{ start: '19:00', end: '21:00', name: 'Open court', source: 'Cal' }], info: ['A birthday'],
+    next: [{ block: 'praktisk', label: 'Tomorrow 18:30', minutes: 60, start: '2026-01-07T18:30:00+01:00', end: '2026-01-07T19:30:00+01:00' }],
+    conflicts: ['Call home 18:00 to 18:30 overlaps Cook (17:00 to 19:00)'],
+    adjustments: ['Desk ends 15:00 instead of 17:00: Dentist', 'Praktisk 18:30 to 19:30 instead of 16:30 to 17:30: overlaps Squash (16:30 to 18:30)'],
+    away: [{ from: '07:45', to: '16:00', for: ['Desk'] }], pack: [{ for: 'Gym 07:00', items: ['shoes', 'towel'] }],
+    changes: [{ calendar: 'Cal', uid: 'u1', title: 'Praktisk', date: '2026-01-07', from: { start: '16:30', end: '17:30' }, to: { start: '18:30', end: '19:30' }, reason: 'x' }],
+    proposals: [
+      { what: 'Praktisk', from: { start: '16:30', end: '17:30' }, why: 'overlaps Squash (16:30 to 18:30)', action: 'moved', slots: [{ date: '2026-01-07', start: '18:30', end: '19:30', label: 'Tomorrow 18:30 to 19:30' }, { date: '2026-01-08', start: '16:30', end: '17:30', label: 'Thu 16:30 to 17:30' }] },
+      { what: 'Call home', from: { start: '18:00', end: '18:30' }, why: 'overlaps Cook (17:00 to 19:00)', action: 'move', slots: [{ date: '2026-01-07', start: '16:30', end: '17:00', label: 'Tomorrow 16:30 to 17:00' }] },
+      { what: 'Hus', from: { start: '11:00', end: '12:30' }, why: 'overlaps Trip (06:00 to 21:30)', action: 'skip', slots: [] },
+      { what: 'Dentist 19:30 to 20:30 overlaps Dinner (19:00 to 21:00)', why: 'two fixed commitments', action: 'choose', slots: [] }] };
+  put('today.json', { date: '2026-01-06', week: 'A', generated: '2026-01-06T04:47:00+01:00',
+    events: [{ start: '13:00', end: '14:00', name: 'Praktisk', kind: 'block', block: 'praktisk', source: 'Cal' }], info: [],
+    options: [{ start: '19:00', end: '20:00', name: 'Late swim', source: 'Cal' }],
+    next: [{ block: 'praktisk', label: 'Today 13:00', minutes: 60, start: '2026-01-06T13:00:00+01:00', end: '2026-01-06T14:00:00+01:00' },
+           { block: 'praktisk', label: 'Tomorrow 16:30', minutes: 60, start: '2026-01-07T16:30:00+01:00', end: '2026-01-07T17:30:00+01:00' }],
+    conflicts: ['Praktisk 13:00 to 14:00 overlaps Lunch out (12:30 to 13:30)'], adjustments: ['Desk ends 15:00 instead of 17:00: Dentist'] });
+  put('tomorrow.json', TOMORROW);
+  await p1.reload(); await synced(p1);
+  await check('Today shows the planner\'s conflicts, adjustments and options', async () => {
+    const notes = await p1.$$eval('#t-notes li', els => els.map(e => e.textContent));
+    assert.deepStrictEqual(notes, ['Conflict Praktisk 13:00 to 14:00 overlaps Lunch out (12:30 to 13:30)', 'Adjusted Desk ends 15:00 instead of 17:00: Dentist']);
+    assert.deepStrictEqual(await names(p1), ['Praktisk', 'Late swim']);
+    assert.strictEqual(await p1.getAttribute('#tl li:nth-child(2)', 'class'), 'opt');
+    assert.strictEqual(await p1.textContent('#t-sum'), '1 h in blocks', 'an option is not counted as planned time');
+  });
+  await check('Tomorrow: the plan, what to pack, and a card per proposal', async () => {
+    assert.ok(await p1.isVisible('#tm-sec'));
+    assert.deepStrictEqual(await p1.$$eval('#tm-tl .name', els => els.map(e => e.firstChild.textContent)), ['Wake', 'Desk', 'Praktisk', 'Open court']);
+    assert.strictEqual(await p1.$$eval('#tm-tl li.past, #tm-tl li.now', els => els.length), 0, 'nothing in tomorrow is past or now');
+    assert.strictEqual(await p1.textContent('#tm-sum'), 'leave 07:45');
+    const notes = await p1.$$eval('#tm-notes li', els => els.map(e => e.textContent));
+    assert.deepStrictEqual(notes, ['Away 07:45 to 16:00 (Desk)', 'Pack for Gym 07:00 shoes, towel', 'Adjusted Desk ends 15:00 instead of 17:00: Dentist'], 'a moved block is shown as a card, not twice');
+    assert.deepStrictEqual(await p1.$$eval('#tm-props .tag', els => els.map(e => e.textContent)), ['Moved', 'Yours to move', 'No room', 'Yours to choose']);
+    assert.deepStrictEqual(await p1.$$eval('#tm-props .prop.moved .slot', els => els.map(e => e.textContent + (e.classList.contains('first') ? '*' : ''))), ['Tomorrow 18:30 to 19:30*', 'Thu 16:30 to 17:30']);
+    assert.match(await p1.textContent('#tm-props .prop.move'), /Call home.*18:00 to 18:30.*overlaps Cook.*Tomorrow 16:30 to 17:00.*Drag it/s);
+    assert.match(await p1.getAttribute('#tm-props .prop.move a', 'href'), /^calshow:\d+$/);
+    assert.strictEqual(await p1.textContent('#tm-src'), 'planned 18:30 · 1 calendar change for the Mac to write');
+    assert.match(await p1.textContent('#fyi') + await p1.textContent('#tm-fyi'), /A birthday/);
+  });
+  if (process.env.SHOT_PLAN) await p1.screenshot({ path: process.env.SHOT_PLAN, fullPage: true });
+  await p1.fill('#cap', 'Pay the bill'); await p1.press('#cap', 'Enter'); await settled(p1);
+  await check('Next up drops a block that has ended and follows the evening plan', async () => {
+    assert.strictEqual(await p1.textContent('.group.praktisk .when'), 'Today 13:00 · 60 min');
+    await p1.clock.fastForward('02:05:00');   // 14:05: today's block is over
+    await p1.waitForFunction(() => /Tomorrow/.test(document.querySelector('.group.praktisk .when').textContent), null, { timeout: 5000 });
+    assert.strictEqual(await p1.textContent('.group.praktisk .when'), 'Tomorrow 18:30 · 60 min', 'the moved time from tomorrow.json wins over the morning card for that day');
+    assert.strictEqual(await p1.getAttribute('#tl li:first-child', 'class'), 'past');
+  });
+  await check('picking an option writes choices.json, dropping it removes the key', async () => {
+    await p1.click('#tm-tl .pick'); await settled(p1);
+    assert.deepStrictEqual(JSON.parse(repo['choices.json'].text).options, { '2026-01-07|Open court': 'yes' });
+    assert.strictEqual(await p1.getAttribute('#tm-tl .pick', 'aria-pressed'), 'true');
+    assert.strictEqual(await p1.textContent('#tm-tl .pick'), 'Going');
+    assert.ok(!(await p1.getAttribute('#tm-tl li:nth-child(4)', 'class') || '').includes('opt'), 'a picked option is no longer dimmed');
+    await p1.reload(); await synced(p1);
+    assert.strictEqual(await p1.getAttribute('#tm-tl .pick', 'aria-pressed'), 'true', 'the pick survives a reload');
+    await p1.click('#tm-tl .pick'); await settled(p1);
+    assert.deepStrictEqual(JSON.parse(repo['choices.json'].text).options, {});
+  });
+  delete repo['today.json']; put('tomorrow.json', { ...TOMORROW, date: '2026-01-06' });
+  await p1.reload(); await synced(p1);
+  await check('last evening\'s plan stands in as Today until the morning card exists', async () => {
+    assert.deepStrictEqual(await names(p1), ['Wake', 'Desk', 'Praktisk', 'Open court']);
+    assert.match(await p1.textContent('#t-src'), /^from last evening's plan, 18:30/);
+    assert.ok(!(await p1.isVisible('#tm-sec')), 'no Tomorrow section without a plan for tomorrow');
+  });
+  delete repo['tomorrow.json']; delete repo['choices.json'];
+
   const p2 = await device('p2');
   await p2.goto(APP);
   await p2.evaluate(cfg => localStorage.setItem('overblik.cfg', JSON.stringify(cfg)), CFG);
   await p2.reload(); await synced(p2);
   await check('cold second device sees open and done-today items and the template', async () => {
     const texts = await p2.$$eval('.item .txt', els => els.map(e => e.firstChild.textContent));
-    assert.deepStrictEqual(texts.sort(), ['Call the bank', 'Oil the chain', 'Written by other device']);
+    assert.deepStrictEqual(texts.sort(), ['Call the bank', 'Oil the chain', 'Pay the bill', 'Written by other device']);
     assert.deepStrictEqual(await names(p2), ['Wake', 'Desk', 'Praktisk']);
   });
 

@@ -78,6 +78,25 @@ header .sub { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
 .tl .now .name::after { content: "now"; font: 500 10px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); margin-left: 8px; vertical-align: middle; }
 .fyi { font-size: 12.5px; color: var(--fg-3); padding-left: 67px; }
 .fyi b { font-weight: 500; color: var(--fg-2); }
+.tl .opt .name, .tl .opt .t { color: var(--fg-3); font-weight: 400; }
+.tl .opt .bar { background: repeating-linear-gradient(var(--fg-3) 0 4px, transparent 4px 8px); }
+.tl .body.split { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.pick { font-size: 12.5px; font-weight: 500; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2); white-space: nowrap; min-height: 32px; }
+.pick[aria-pressed="true"] { border-color: var(--body); color: var(--fg); background: color-mix(in srgb, var(--body) 14%, transparent); }
+.notes { list-style: none; margin: 0; padding: 0 0 0 67px; display: grid; gap: 3px; font-size: 12.5px; color: var(--fg-2); }
+.notes li b { font-weight: 500; color: var(--fg); }
+.notes .conf { color: var(--bad); }
+.props { display: grid; gap: 8px; }
+.prop { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--c, var(--warn)); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
+.prop.moved { --c: var(--ok); } .prop.skip, .prop.choose { --c: var(--bad); }
+.prop .p-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
+.prop .tag { font: 500 10px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--c, var(--warn)); }
+.prop .p-h b { font-weight: 600; }
+.prop .p-w, .prop .p-a { font-size: 12.5px; color: var(--fg-2); }
+.prop .p-a a { color: var(--accent); text-underline-offset: 2px; white-space: nowrap; }
+.slots { display: flex; flex-wrap: wrap; gap: 6px; }
+.slot { font: 500 12.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; padding: 7px 9px; border-radius: 6px; background: var(--surface-2); color: var(--fg); }
+.slot.first { background: color-mix(in srgb, var(--ok) 18%, var(--surface-2)); }
 .src { font-size: 11.5px; color: var(--fg-3); font-family: var(--font-mono); }
 
 #groups, #backlog { display: grid; gap: 22px; }
@@ -149,7 +168,7 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
       <button class="btn" type="button" id="s-close">Close</button>
       <span class="msg" id="s-msg"></span>
     </div>
-    <p>The token stays in this browser only. Items are written to <span class="mono">inbox.json</span> in the data repo on every change; the planner reads that file each morning. The week under Today comes from <span class="mono">template.json</span> in the same repo.</p>
+    <p>The token stays in this browser only. Items are written to <span class="mono">inbox.json</span> in the data repo on every change; the planner reads that file each morning and evening. The week under Today comes from <span class="mono">template.json</span> in the same repo.</p>
   </section>
 
   <section class="capture" aria-label="Capture">
@@ -169,7 +188,17 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
     <div class="head"><h2>Today</h2><span class="count mono" id="t-sum"></span></div>
     <ul class="tl" id="tl"></ul>
     <div class="fyi" id="fyi"></div>
+    <ul class="notes" id="t-notes"></ul>
     <div class="src" id="t-src"></div>
+  </section>
+
+  <section class="sec" id="tm-sec" hidden aria-label="Tomorrow">
+    <div class="head"><h2>Tomorrow</h2><span class="count mono" id="tm-sum"></span></div>
+    <ul class="tl" id="tm-tl"></ul>
+    <div class="fyi" id="tm-fyi"></div>
+    <ul class="notes" id="tm-notes"></ul>
+    <div class="props" id="tm-props"></div>
+    <div class="src" id="tm-src"></div>
   </section>
 
   <section class="sec" aria-label="Next up">
@@ -238,24 +267,37 @@ function templateNext(block, from){ // next occurrence of a block in the templat
       return { label:day+" "+r.start, minutes:toMin(r.end)-toMin(r.start) }; } }
   return null;
 }
-function nextBlock(block, from, card){
-  // Prefer the card's forward view if it carries one; else the template.
-  const tpl=templateNext(block, from);
-  if(card && Array.isArray(card.next)){ const n=card.next.find(x=>x.block===block); if(n) return { label:n.label, minutes:n.minutes||(tpl&&tpl.minutes)||DEFAULT_BLOCK_MIN }; }
+function dayWord(date, from){ // "Today", "Tomorrow", "Sat", or "Sat 17 Jan" beyond a week
+  const a=new Date(from); a.setHours(0,0,0,0); const b=new Date(date); b.setHours(0,0,0,0); const i=Math.round((b-a)/864e5);
+  return i===0?"Today":i===1?"Tomorrow":b.toLocaleDateString("en-GB", i<=7?{weekday:"short"}:{weekday:"short",day:"numeric",month:"short"});
+}
+function nextBlock(block, from, card, later){
+  // Prefer the planner's forward view: today's card, and last evening's plan for tomorrow where it is newer. Else the template.
+  // An occurrence with ISO times is dropped once it has ended, and its label is built here so it is right at any hour.
+  const tpl=templateNext(block, from), mins=n=>n.minutes||(tpl&&tpl.minutes)||DEFAULT_BLOCK_MIN;
+  const of=c=>(c&&Array.isArray(c.next)?c.next:[]).filter(x=>x.block===block);
+  const dated=x=>x.start&&x.end&&!Number.isNaN(Date.parse(x.start))&&!Number.isNaN(Date.parse(x.end));
+  let cand=[...of(later).filter(dated).map(x=>({...x,later:true})), ...of(card).filter(dated)];
+  const laterDays=new Set(cand.filter(x=>x.later).map(x=>x.start.slice(0,10)));
+  cand=cand.filter(x=>(x.later||!laterDays.has(x.start.slice(0,10))) && new Date(x.end)>from).sort((x,y)=>new Date(x.start)-new Date(y.start));
+  if(cand.length){ const n=cand[0], st=new Date(n.start); return { label:dayWord(st,from)+" "+clock(n.start), minutes:mins(n) }; }
+  const plain=of(card).find(x=>!dated(x)); if(plain) return { label:plain.label, minutes:mins(plain) };
   return tpl;
 }
 
 // =====================================================================
 // 2. State: items (inbox.json), cards, settings
 // =====================================================================
-const LS = { items:"overblik.items", cfg:"overblik.cfg", meta:"overblik.meta", tpl:"overblik.tpl" };
+const LS = { items:"overblik.items", cfg:"overblik.cfg", meta:"overblik.meta", tpl:"overblik.tpl", choices:"overblik.choices" };
 const ls = { get(k,f){ try{ const v=localStorage.getItem(k); return v==null?f:JSON.parse(v);}catch(e){return f;} }, set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
 let items = ls.get(LS.items, []);          // [{id,text,block,created,updated,done}]
 let cfg   = ls.get(LS.cfg, {owner:"",repo:"overblik-data",branch:"main",token:""});
 let meta  = ls.get(LS.meta, {sha:null,lastSync:null,dirty:false});
 let template = ls.get(LS.tpl, null); if(!validTemplate(template)) template=null; // last good template.json, kept for offline use
 let templateError=false;                   // true when the repo copy failed validation on the last sync
-let todayCard=null, stonesCard=null, block="praktisk";
+let todayCard=null, tomorrowCard=null, todayFromEvening=false, stonesCard=null, block="praktisk";
+let choices = ls.get(LS.choices, {options:{},dirty:false});   // options picked per date: {"YYYY-MM-DD|title":"yes"}; written to choices.json
+const tomorrowOf = d => { const x=new Date(d); x.setDate(x.getDate()+1); return x; };
 const now = ()=>new Date();
 function ymd(d){ const z=n=>String(n).padStart(2,"0"); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`; }
 const minutesOf = t => { const m=/\((\d+)\s*m\)/i.exec(t); return m?+m[1]:10; };
@@ -306,6 +348,7 @@ async function sync(reason){
       } else meta.sha = remote.sha;
       meta.dirty=false; meta.lastSync=new Date().toISOString(); saveLocal(); break;
     }
+    try{ await syncChoices(); }catch(e){ console.warn(e); }   // a pick that could not be written stays queued; the inbox sync still counts
     await loadCards();
     setStatus("synced "+clock(meta.lastSync),"ok");
   }catch(e){
@@ -314,10 +357,29 @@ async function sync(reason){
     console.warn(e);
   }finally{ syncing=false; render(); if(syncAgain){ syncAgain=false; sync("retry"); } }
 }
+async function syncChoices(){
+  // choices.json: this app is its only writer. Local picks made since the last write replace the remote copy; past dates are pruned.
+  const today=ymd(now()), prune=o=>Object.fromEntries(Object.entries(o||{}).filter(([k])=>k.slice(0,10)>=today));
+  const remote = await ghGet("choices.json"); let rOpts={}; if(!remote.missing){ try{ rOpts=JSON.parse(remote.text).options||{}; }catch(e){} }
+  if(!choices.dirty){ choices={options:prune(rOpts),dirty:false}; ls.set(LS.choices,choices); return; }
+  const opts=prune(choices.options);
+  for(let attempt=0, sha=remote.missing?null:remote.sha; attempt<3; attempt++){
+    const put = await ghPut("choices.json", JSON.stringify({updated:new Date().toISOString(),options:opts},null,1)+"\n", sha, "overblik: choices");
+    if(!put.conflict){ choices={options:opts,dirty:false}; ls.set(LS.choices,choices); return; }
+    const again=await ghGet("choices.json"); sha=again.missing?null:again.sha;
+  }
+  throw new Error("choices.json: could not write");
+}
 async function loadCards(){
   await Promise.all([
     // today.json: written by the planner each morning. Used only if it is for today.
-    (async()=>{ try{ const r=await ghGet("today.json"); if(!r.missing){ const c=JSON.parse(r.text); todayCard = (c && c.date===ymd(now()))? c : null; } }catch(e){ todayCard=null; } })(),
+    // tomorrow.json: written each evening for the next day. Shown as Tomorrow, and as Today after midnight until the morning run has written today.json.
+    (async()=>{ let t=null, m=null;
+      try{ const r=await ghGet("today.json"); if(!r.missing){ const c=JSON.parse(r.text); if(c && c.date===ymd(now())) t=c; } }catch(e){}
+      try{ const r=await ghGet("tomorrow.json"); if(!r.missing) m=JSON.parse(r.text); }catch(e){}
+      todayFromEvening = !t && !!m && m.date===ymd(now());
+      todayCard = todayFromEvening ? m : t;
+      tomorrowCard = (m && m.date===ymd(tomorrowOf(now()))) ? m : null; })(),
     // tankebaenken.json: written by the Tankebænken app. Optional.
     (async()=>{ try{ const r=await ghGet("tankebaenken.json"); stonesCard = r.missing? null : JSON.parse(r.text); }catch(e){ stonesCard=null; } })(),
     // template.json: the template week, edited by hand. A copy that fails validation never replaces the last good one.
@@ -337,19 +399,13 @@ function render(){
   const wk = day.week || weekLetter(n), wkNote = wk && template && template.week_notes && template.week_notes[wk];
   document.getElementById("h-sub").textContent = `Week ${isoWeek(n)}` + (wk ? ` · ${wk} week` : "") + (wkNote ? ` · ${wkNote}` : "");
   const nowMin=n.getHours()*60+n.getMinutes();
-  const tl=document.getElementById("tl"); tl.innerHTML=""; let planned=0;
-  (day.events||[]).forEach(e=>{
-    const li=document.createElement("li"); const s=toMin(e.start), en=toMin(e.end);
-    const colour = e.kind==="block" ? (BLOCKS.includes(e.block)?e.block:"praktisk") : e.kind==="sport"||e.kind==="body" ? "body" : e.kind==="work" ? "work" : "quiet";
-    li.className=(e.kind==="work"?"work ":"")+(en<=nowMin?"past":(s<=nowMin&&nowMin<en?"now":""));
-    li.style.setProperty("--c",`var(--${colour})`);
-    if(e.kind!=="work") planned+=en-s;
-    li.innerHTML=`<span class="t">${esc(e.start)}<br>${esc(e.end)}</span><span class="bar"></span><div class="body"><div class="name">${esc(e.name)}${e.session?` <span class="mono" style="font-weight:400;color:var(--fg-2)">${esc(e.session)}</span>`:""}</div><div class="meta">${esc(e.source||"")}</div></div>`;
-    tl.appendChild(li);
-  });
+  const planned = timeline(document.getElementById("tl"), day, ymd(n), nowMin);
   document.getElementById("t-sum").textContent = (day.events||[]).length ? `${Math.round(planned/60*10)/10} h in blocks` : "";
   document.getElementById("fyi").innerHTML = (day.info&&day.info.length)?`<b>FYI</b> ${day.info.map(esc).join(" · ")}`:"";
-  document.getElementById("t-src").textContent = (todayCard ? `from planner card, ${clock(todayCard.generated)}`
+  document.getElementById("t-notes").innerHTML = (day.conflicts||[]).map(c=>`<li class="conf"><b>Conflict</b> ${esc(c)}</li>`).join("")
+    + (day.adjustments||[]).map(a=>`<li><b>Adjusted</b> ${esc(a)}</li>`).join("");
+  renderTomorrow(n);
+  document.getElementById("t-src").textContent = (todayCard ? (todayFromEvening ? `from last evening's plan, ${clock(todayCard.generated)}` : `from planner card, ${clock(todayCard.generated)}`)
     : template ? "from template.json; the planner card replaces this once the morning run writes today.json"
     : configured() ? "No template.json in the data repo yet, so there is no week to show."
     : "Set up the data repo to see your week here.")
@@ -366,7 +422,7 @@ function render(){
   BLOCKS.forEach(b=>{
     const open=items.filter(i=>i.block===b&&!i.done).sort((x,y)=>x.created.localeCompare(y.created)||x.id.localeCompare(y.id));
     const doneToday=items.filter(i=>i.block===b&&i.done&&(i.done.slice(0,10)===today));
-    const nb=nextBlock(b,n,todayCard); const cap=nb?nb.minutes:DEFAULT_BLOCK_MIN; let used=0; const fits=[], rolls=[];
+    const nb=nextBlock(b,n,todayCard,tomorrowCard); const cap=nb?nb.minutes:DEFAULT_BLOCK_MIN; let used=0; const fits=[], rolls=[];
     open.forEach(it=>{ const m=minutesOf(it.text); if(used+m<=cap){used+=m;fits.push([it,m]);} else rolls.push([it,m]); });
     if(fits.length||doneToday.length){
       const sec=document.createElement("section"); sec.className="group "+b;
@@ -395,6 +451,51 @@ function render(){
     ? `${items.filter(i=>!i.done).length} open · ${cfg.owner}/${cfg.repo}` + (meta.dirty?" · changes waiting to sync":"")
     : "Not connected: items stay in this browser until setup is done.";
 }
+function timeline(tl, day, date, nowMin){
+  // One day's rows. nowMin is null for a day that is not today (nothing is past, nothing is "now"). Returns minutes outside work.
+  tl.innerHTML=""; let planned=0;
+  const rows=(day.events||[]).map(e=>({e})).concat((day.options||[]).map(e=>({e,opt:true}))).sort((x,y)=>x.e.start.localeCompare(y.e.start)||x.e.end.localeCompare(y.e.end));
+  rows.forEach(({e,opt})=>{
+    const li=document.createElement("li"); const s=toMin(e.start), en=toMin(e.end), key=date+"|"+e.name, picked=choices.options[key]==="yes";
+    const colour = e.kind==="block" ? (BLOCKS.includes(e.block)?e.block:"praktisk") : e.kind==="sport"||e.kind==="body" ? "body" : e.kind==="work" ? "work" : "quiet";
+    li.className=[e.kind==="work"?"work":"", opt&&!picked?"opt":"", nowMin==null?"":en<=nowMin?"past":(s<=nowMin&&nowMin<en?"now":"")].filter(Boolean).join(" ");
+    li.style.setProperty("--c",`var(--${opt?"body":colour})`);
+    if(e.kind!=="work" && !opt) planned+=en-s;
+    const btn = (opt||picked) ? `<button class="pick" type="button" data-opt="${esc(key)}" aria-pressed="${picked}">${picked?"Going":"I'm going"}</button>` : "";
+    const meta = opt ? (picked ? "picked: the plan follows at the next planner run" : "option · blocks nothing until you pick it") : (e.source||"");
+    li.innerHTML=`<span class="t">${esc(e.start)}<br>${esc(e.end)}</span><span class="bar"></span><div class="body${btn?" split":""}"><div><div class="name">${esc(e.name)}${e.session?` <span class="mono" style="font-weight:400;color:var(--fg-2)">${esc(e.session)}</span>`:""}</div><div class="meta">${esc(meta)}</div></div>${btn}</div>`;
+    tl.appendChild(li);
+  });
+  return planned;
+}
+function renderTomorrow(n){
+  const sec=document.getElementById("tm-sec"), c=tomorrowCard; sec.hidden=!c; if(!c) return;
+  const tm=tomorrowOf(n);
+  timeline(document.getElementById("tm-tl"), c, c.date, null);
+  const away=c.away||[];
+  document.getElementById("tm-sum").textContent = away.length ? `leave ${away[0].from}` : "nowhere to be";
+  document.getElementById("tm-fyi").innerHTML = (c.info&&c.info.length)?`<b>FYI</b> ${c.info.map(esc).join(" · ")}`:"";
+  const props=c.proposals||[], movedNames=props.filter(p=>p.action==="moved").map(p=>p.what);
+  const notes=[];
+  if(away.length) notes.push(`<li><b>Away</b> ${away.map(a=>`${esc(a.from)} to ${esc(a.to)} (${a.for.map(esc).join(", ")})`).join(", home, ")}</li>`);
+  (c.pack||[]).forEach(p=>notes.push(`<li><b>Pack for ${esc(p.for)}</b> ${p.items.map(esc).join(", ")}</li>`));
+  (c.adjustments||[]).filter(a=>!movedNames.some(m=>a.startsWith(m+" "))).forEach(a=>notes.push(`<li><b>Adjusted</b> ${esc(a)}</li>`));
+  document.getElementById("tm-notes").innerHTML=notes.join("");
+  // proposals: what the planner moved, and what is his to move. Accepting is dragging the block in the calendar; the link opens it on the day.
+  const cal=`calshow:${Math.round((new Date(tm.getFullYear(),tm.getMonth(),tm.getDate(),12)-Date.UTC(2001,0,1))/1000)}`;
+  const open=`<a href="${cal}">Open calendar</a>`, span=p=>p.from?`<span class="mono">${esc(p.from.start)} to ${esc(p.from.end)}</span>`:"";
+  const slots=(list,first)=>list.length?`<div class="slots">${list.map((s,i)=>`<span class="slot${first&&i===0?" first":""}">${esc(s.label)}</span>`).join("")}</div>`:"";
+  document.getElementById("tm-props").innerHTML = props.map(p=>{
+    if(p.action==="moved") return `<div class="prop moved"><div class="p-h"><span class="tag">Moved</span><b>${esc(p.what)}</b>${span(p)}</div><div class="p-w">${esc(p.why)}</div>${slots(p.slots,true)}
+      <div class="p-a">It is in the first slot. Prefer another? Drag it there in your calendar. ${open}</div></div>`;
+    if(p.action==="move") return `<div class="prop move"><div class="p-h"><span class="tag">Yours to move</span><b>${esc(p.what)}</b>${span(p)}</div><div class="p-w">${esc(p.why)}</div>${slots(p.slots,false)}
+      <div class="p-a">Free slots that fit. Drag it to one in your calendar, or leave it. ${open}</div></div>`;
+    if(p.action==="skip") return `<div class="prop skip"><div class="p-h"><span class="tag">No room</span><b>${esc(p.what)}</b>${span(p)}</div><div class="p-w">${esc(p.why)}</div>
+      <div class="p-a">No free slot that day. Skip it, or make room yourself. ${open}</div></div>`;
+    return `<div class="prop choose"><div class="p-h"><span class="tag">Yours to choose</span></div><div class="p-w">${esc(p.what)}</div><div class="p-a">Neither can be moved for you. ${open}</div></div>`;
+  }).join("");
+  document.getElementById("tm-src").textContent = `planned ${clock(c.generated)}` + ((c.changes||[]).length ? ` · ${c.changes.length} calendar change${c.changes.length===1?"":"s"} for the Mac to write` : "");
+}
 function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 // =====================================================================
@@ -412,6 +513,11 @@ document.querySelector(".wrap").addEventListener("click",e=>{
   const btn=e.target.closest("button[data-id]"); if(!btn) return;
   const it=items.find(i=>i.id===btn.dataset.id); if(!it) return;
   const ts=new Date().toISOString(); it.done = it.done ? null : ts; it.updated=ts; meta.dirty=true; saveLocal(); render(); sync(it.done?"done":"undo");
+});
+document.querySelector(".wrap").addEventListener("click",e=>{   // pick or drop an option for its date
+  const btn=e.target.closest("button[data-opt]"); if(!btn) return;
+  const k=btn.dataset.opt; if(choices.options[k]) delete choices.options[k]; else choices.options[k]="yes";
+  choices.dirty=true; ls.set(LS.choices,choices); render(); sync("choice");
 });
 // setup panel
 const setup=document.getElementById("setup");
