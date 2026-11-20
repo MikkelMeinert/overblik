@@ -161,11 +161,12 @@ const NOW = '2026-01-06T12:00:00+01:00'; // a Tuesday in an A week, Europe/Copen
     next: [{ block: 'praktisk', label: 'Tomorrow 18:30', minutes: 60, start: '2026-01-07T18:30:00+01:00', end: '2026-01-07T19:30:00+01:00' }],
     conflicts: ['Call home 18:00 to 18:30 overlaps Cook (17:00 to 19:00)'],
     adjustments: ['Desk ends 15:00 instead of 17:00: Dentist', 'Praktisk 18:30 to 19:30 instead of 16:30 to 17:30: overlaps Squash (16:30 to 18:30)'],
-    away: [{ from: '07:45', to: '16:00', for: ['Desk'] }], pack: [{ for: 'Gym 07:00', items: ['shoes', 'towel'] }],
+    away: [{ from: '07:45', to: '16:00', for: ['Desk'] }], pack: [{ for: 'Gym 07:00', items: ['shoes', 'towel'] }, { for: 'Every day', items: ['keys'] }],
     changes: [{ calendar: 'Cal', uid: 'u1', title: 'Praktisk', date: '2026-01-07', from: { start: '16:30', end: '17:30' }, to: { start: '18:30', end: '19:30' }, reason: 'x' }],
     proposals: [
       { what: 'Praktisk', from: { start: '16:30', end: '17:30' }, why: 'overlaps Squash (16:30 to 18:30)', action: 'moved', slots: [{ date: '2026-01-07', start: '18:30', end: '19:30', label: 'Tomorrow 18:30 to 19:30' }, { date: '2026-01-08', start: '16:30', end: '17:30', label: 'Thu 16:30 to 17:30' }] },
-      { what: 'Call home', from: { start: '18:00', end: '18:30' }, why: 'overlaps Cook (17:00 to 19:00)', action: 'move', slots: [{ date: '2026-01-07', start: '16:30', end: '17:00', label: 'Tomorrow 16:30 to 17:00' }] },
+      { what: 'Call home', from: { start: '18:00', end: '18:30' }, why: 'overlaps Cook (17:00 to 19:00)', action: 'move', calendar: 'Hjem', uid: 'u9', date: '2026-01-07',
+        slots: [{ date: '2026-01-07', start: '16:30', end: '17:00', label: 'Tomorrow 16:30 to 17:00' }, { date: '2026-01-08', start: '18:00', end: '18:30', label: 'Thu 18:00 to 18:30' }] },
       { what: 'Hus', from: { start: '11:00', end: '12:30' }, why: 'overlaps Trip (06:00 to 21:30)', action: 'skip', slots: [] },
       { what: 'Dentist 19:30 to 20:30 overlaps Dinner (19:00 to 21:00)', why: 'two fixed commitments', action: 'choose', slots: [] }] };
   put('today.json', { date: '2026-01-06', week: 'A', generated: '2026-01-06T04:47:00+01:00',
@@ -189,15 +190,40 @@ const NOW = '2026-01-06T12:00:00+01:00'; // a Tuesday in an A week, Europe/Copen
     assert.strictEqual(await p1.$$eval('#tm-tl li.past, #tm-tl li.now', els => els.length), 0, 'nothing in tomorrow is past or now');
     assert.strictEqual(await p1.textContent('#tm-sum'), 'leave 07:45');
     const notes = await p1.$$eval('#tm-notes li', els => els.map(e => e.textContent));
-    assert.deepStrictEqual(notes, ['Away 07:45 to 16:00 (Desk)', 'Pack for Gym 07:00 shoes, towel', 'Adjusted Desk ends 15:00 instead of 17:00: Dentist'], 'a moved block is shown as a card, not twice');
+    assert.deepStrictEqual(notes, ['Away 07:45 to 16:00 (Desk)', 'Adjusted Desk ends 15:00 instead of 17:00: Dentist'], 'a moved block is shown as a card, not twice; packing has its own list');
+    assert.deepStrictEqual(await p1.$$eval('#tm-pack .tick', els => els.map(e => e.textContent.trim())), ['shoes', 'towel', 'keys']);
+    assert.deepStrictEqual(await p1.$$eval('#tm-pack .pk-h', els => els.map(e => e.textContent)), ['Gym 07:00', 'Every day']);
     assert.deepStrictEqual(await p1.$$eval('#tm-props .tag', els => els.map(e => e.textContent)), ['Moved', 'Yours to move', 'No room', 'Yours to choose']);
     assert.deepStrictEqual(await p1.$$eval('#tm-props .prop.moved .slot', els => els.map(e => e.textContent + (e.classList.contains('first') ? '*' : ''))), ['Tomorrow 18:30 to 19:30*', 'Thu 16:30 to 17:30']);
-    assert.match(await p1.textContent('#tm-props .prop.move'), /Call home.*18:00 to 18:30.*overlaps Cook.*Tomorrow 16:30 to 17:00.*Drag it/s);
+    assert.match(await p1.textContent('#tm-props .prop.move'), /Call home.*18:00 to 18:30.*overlaps Cook.*Tomorrow 16:30 to 17:00.*Tap a slot/s);
+    assert.strictEqual(await p1.$$eval('#tm-props .prop.moved button.slot', els => els.length), 0, 'what the planner moved itself is not offered as a tap');
     assert.match(await p1.getAttribute('#tm-props .prop.move a', 'href'), /^calshow:\d+$/);
     assert.strictEqual(await p1.textContent('#tm-src'), 'planned 18:30 · 1 calendar change for the Mac to write');
     assert.match(await p1.textContent('#fyi') + await p1.textContent('#tm-fyi'), /A birthday/);
   });
   if (process.env.SHOT_PLAN) await p1.screenshot({ path: process.env.SHOT_PLAN, fullPage: true });
+  await check('Accept: a tapped slot is written to accepts.json, a second tap takes it back', async () => {
+    await p1.click('#tm-props .prop.move button.slot >> nth=1'); await settled(p1);
+    const acc = JSON.parse(repo['accepts.json'].text).items.map(({ at, ...rest }) => rest);
+    assert.deepStrictEqual(acc, [{ id: '2026-01-07@x|Call home|18:00', plan_id: '2026-01-07@x', calendar: 'Hjem', uid: 'u9', title: 'Call home', date: '2026-01-07',
+      from: { start: '18:00', end: '18:30' }, to: { date: '2026-01-08', start: '18:00', end: '18:30' } }]);
+    assert.deepStrictEqual(await p1.$$eval('#tm-props .prop.move button.slot', els => els.map(e => e.getAttribute('aria-pressed'))), ['false', 'true']);
+    assert.match(await p1.textContent('#tm-props .prop.move .p-a'), /Accepted Thu 18:00 to 18:30/);
+    await p1.reload(); await synced(p1);
+    assert.match(await p1.textContent('#tm-props .prop.move .p-a'), /Accepted/, 'the accept survives a reload');
+    await p1.click('#tm-props .prop.move button.slot >> nth=0'); await settled(p1);
+    assert.deepStrictEqual(JSON.parse(repo['accepts.json'].text).items.map(i => i.to.date + ' ' + i.to.start), ['2026-01-07 16:30'], 'another slot replaces the first');
+    await p1.click('#tm-props .prop.move button.slot >> nth=0'); await settled(p1);
+    assert.deepStrictEqual(JSON.parse(repo['accepts.json'].text).items, [], 'tapping the chosen slot again takes the accept back');
+  });
+  await check('Packing: ticks stay on this device and count down', async () => {
+    await p1.click('#tm-pack .tick >> nth=0');
+    assert.strictEqual(await p1.getAttribute('#tm-pack .tick >> nth=0', 'aria-pressed'), 'true');
+    assert.strictEqual(await p1.textContent('#tm-pack .pk-n'), '1 of 3 packed');
+    await p1.reload(); await synced(p1);
+    assert.strictEqual(await p1.getAttribute('#tm-pack .tick >> nth=0', 'aria-pressed'), 'true', 'ticks survive a reload');
+    assert.ok(!puts.some(p => /pack/.test(p)), 'ticks are never written to the repo');
+  });
   await p1.fill('#cap', 'Pay the bill'); await p1.press('#cap', 'Enter'); await settled(p1);
   await check('Next up drops a block that has ended and follows the evening plan', async () => {
     assert.strictEqual(await p1.textContent('.group.praktisk .when'), 'Today 13:00 · 60 min');
@@ -223,6 +249,7 @@ const NOW = '2026-01-06T12:00:00+01:00'; // a Tuesday in an A week, Europe/Copen
     assert.deepStrictEqual(await names(p1), ['Wake', 'Desk', 'Praktisk', 'Open court']);
     assert.match(await p1.textContent('#t-src'), /^from last evening's plan, 18:30/);
     assert.ok(!(await p1.isVisible('#tm-sec')), 'no Tomorrow section without a plan for tomorrow');
+    assert.deepStrictEqual(await p1.$$eval('#t-pack .tick', els => els.map(e => e.textContent.trim())), ['shoes', 'towel', 'keys'], 'the packing list from last evening is under Today');
   });
   delete repo['tomorrow.json']; delete repo['choices.json'];
 

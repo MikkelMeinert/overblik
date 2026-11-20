@@ -97,6 +97,14 @@ header .sub { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
 .slots { display: flex; flex-wrap: wrap; gap: 6px; }
 .slot { font: 500 12.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; padding: 7px 9px; border-radius: 6px; background: var(--surface-2); color: var(--fg); }
 .slot.first { background: color-mix(in srgb, var(--ok) 18%, var(--surface-2)); }
+button.slot { border: 1px solid var(--line); cursor: pointer; }
+button.slot[aria-pressed="true"] { background: color-mix(in srgb, var(--ok) 22%, var(--surface-2)); border-color: var(--ok); }
+.pack { display: grid; gap: 8px; margin: 8px 0 0; }
+.pk-h { font: 500 10px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); margin: 2px 0 4px; }
+.pk-n { font: 500 11px/1 var(--font-mono); color: var(--fg-2); }
+.ticks { display: flex; flex-wrap: wrap; gap: 6px; }
+.tick { font-size: 13px; padding: 7px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+.tick[aria-pressed="true"] { background: var(--surface-2); color: var(--fg-2); text-decoration: line-through; }
 .src { font-size: 11.5px; color: var(--fg-3); font-family: var(--font-mono); }
 
 #groups, #backlog { display: grid; gap: 22px; }
@@ -189,6 +197,7 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
     <ul class="tl" id="tl"></ul>
     <div class="fyi" id="fyi"></div>
     <ul class="notes" id="t-notes"></ul>
+    <div class="pack" id="t-pack"></div>
     <div class="src" id="t-src"></div>
   </section>
 
@@ -197,6 +206,7 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
     <ul class="tl" id="tm-tl"></ul>
     <div class="fyi" id="tm-fyi"></div>
     <ul class="notes" id="tm-notes"></ul>
+    <div class="pack" id="tm-pack"></div>
     <div class="props" id="tm-props"></div>
     <div class="src" id="tm-src"></div>
   </section>
@@ -288,15 +298,17 @@ function nextBlock(block, from, card, later){
 // =====================================================================
 // 2. State: items (inbox.json), cards, settings
 // =====================================================================
-const LS = { items:"overblik.items", cfg:"overblik.cfg", meta:"overblik.meta", tpl:"overblik.tpl", choices:"overblik.choices" };
+const LS = { items:"overblik.items", cfg:"overblik.cfg", meta:"overblik.meta", tpl:"overblik.tpl", choices:"overblik.choices", accepts:"overblik.accepts", pack:"overblik.pack" };
 const ls = { get(k,f){ try{ const v=localStorage.getItem(k); return v==null?f:JSON.parse(v);}catch(e){return f;} }, set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
 let items = ls.get(LS.items, []);          // [{id,text,block,created,updated,done}]
 let cfg   = ls.get(LS.cfg, {owner:"",repo:"overblik-data",branch:"main",token:""});
 let meta  = ls.get(LS.meta, {sha:null,lastSync:null,dirty:false});
 let template = ls.get(LS.tpl, null); if(!validTemplate(template)) template=null; // last good template.json, kept for offline use
 let templateError=false;                   // true when the repo copy failed validation on the last sync
-let todayCard=null, tomorrowCard=null, todayFromEvening=false, stonesCard=null, block="praktisk";
+let todayCard=null, tomorrowCard=null, eveningToday=null, todayFromEvening=false, stonesCard=null, block="praktisk";
 let choices = ls.get(LS.choices, {options:{},dirty:false});   // options picked per date: {"YYYY-MM-DD|title":"yes"}; written to choices.json
+let accepts = ls.get(LS.accepts, {items:[],dirty:false});      // proposals accepted with a tap; written to accepts.json, applied by the Mac job
+let packTicks = ls.get(LS.pack, {});                           // {"YYYY-MM-DD": {"for|item": true}}: this device only, never written to the repo
 const tomorrowOf = d => { const x=new Date(d); x.setDate(x.getDate()+1); return x; };
 const now = ()=>new Date();
 function ymd(d){ const z=n=>String(n).padStart(2,"0"); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`; }
@@ -349,6 +361,7 @@ async function sync(reason){
       meta.dirty=false; meta.lastSync=new Date().toISOString(); saveLocal(); break;
     }
     try{ await syncChoices(); }catch(e){ console.warn(e); }   // a pick that could not be written stays queued; the inbox sync still counts
+    try{ await syncAccepts(); }catch(e){ console.warn(e); }
     await loadCards();
     setStatus("synced "+clock(meta.lastSync),"ok");
   }catch(e){
@@ -370,6 +383,19 @@ async function syncChoices(){
   }
   throw new Error("choices.json: could not write");
 }
+async function syncAccepts(){
+  // accepts.json: this app is its only writer; the Mac job reads it and moves each accepted event once. Past dates are pruned.
+  const today=ymd(now()), keep=list=>(list||[]).filter(i=>(i.date||"")>=today);
+  const remote = await ghGet("accepts.json"); let rItems=[]; if(!remote.missing){ try{ rItems=JSON.parse(remote.text).items||[]; }catch(e){} }
+  if(!accepts.dirty){ accepts={items:keep(rItems),dirty:false}; ls.set(LS.accepts,accepts); return; }
+  const list=keep(accepts.items);
+  for(let attempt=0, sha=remote.missing?null:remote.sha; attempt<3; attempt++){
+    const put = await ghPut("accepts.json", JSON.stringify({updated:new Date().toISOString(),items:list},null,1)+"\n", sha, "overblik: accept");
+    if(!put.conflict){ accepts={items:list,dirty:false}; ls.set(LS.accepts,accepts); return; }
+    const again=await ghGet("accepts.json"); sha=again.missing?null:again.sha;
+  }
+  throw new Error("accepts.json: could not write");
+}
 async function loadCards(){
   await Promise.all([
     // today.json: written by the planner each morning. Used only if it is for today.
@@ -378,6 +404,7 @@ async function loadCards(){
       try{ const r=await ghGet("today.json"); if(!r.missing){ const c=JSON.parse(r.text); if(c && c.date===ymd(now())) t=c; } }catch(e){}
       try{ const r=await ghGet("tomorrow.json"); if(!r.missing) m=JSON.parse(r.text); }catch(e){}
       todayFromEvening = !t && !!m && m.date===ymd(now());
+      eveningToday = (m && m.date===ymd(now())) ? m : null;   // last evening's plan for today: it holds today's packing list
       todayCard = todayFromEvening ? m : t;
       tomorrowCard = (m && m.date===ymd(tomorrowOf(now()))) ? m : null; })(),
     // tankebaenken.json: written by the Tankebænken app. Optional.
@@ -404,6 +431,7 @@ function render(){
   document.getElementById("fyi").innerHTML = (day.info&&day.info.length)?`<b>FYI</b> ${day.info.map(esc).join(" · ")}`:"";
   document.getElementById("t-notes").innerHTML = (day.conflicts||[]).map(c=>`<li class="conf"><b>Conflict</b> ${esc(c)}</li>`).join("")
     + (day.adjustments||[]).map(a=>`<li><b>Adjusted</b> ${esc(a)}</li>`).join("");
+  document.getElementById("t-pack").innerHTML = packHTML(eveningToday);
   renderTomorrow(n);
   document.getElementById("t-src").textContent = (todayCard ? (todayFromEvening ? `from last evening's plan, ${clock(todayCard.generated)}` : `from planner card, ${clock(todayCard.generated)}`)
     : template ? "from template.json; the planner card replaces this once the morning run writes today.json"
@@ -468,6 +496,14 @@ function timeline(tl, day, date, nowMin){
   });
   return planned;
 }
+function packHTML(card){
+  // The packing lists of a plan as tick boxes. Ticks are kept per date on this device; they carry from the evening into the day.
+  const lists=(card&&card.pack)||[]; if(!lists.length) return "";
+  const t=packTicks[card.date]||{}, all=lists.flatMap(p=>p.items.map(i=>p.for+"|"+i)), done=all.filter(k=>t[k]).length;
+  return `<div class="pk-n">${done} of ${all.length} packed</div>` + lists.map(p=>`<div><div class="pk-h">${esc(p.for)}</div><div class="ticks">${
+    p.items.map(i=>{ const k=p.for+"|"+i; return `<button class="tick" type="button" data-pack="${esc(card.date+"/"+k)}" aria-pressed="${!!t[k]}">${esc(i)}</button>`; }).join("")}</div></div>`).join("");
+}
+const acceptId=(c,p)=>`${c.plan_id}|${p.what}|${p.from?p.from.start:""}`;
 function renderTomorrow(n){
   const sec=document.getElementById("tm-sec"), c=tomorrowCard; sec.hidden=!c; if(!c) return;
   const tm=tomorrowOf(n);
@@ -478,14 +514,22 @@ function renderTomorrow(n){
   const props=c.proposals||[], movedNames=props.filter(p=>p.action==="moved").map(p=>p.what);
   const notes=[];
   if(away.length) notes.push(`<li><b>Away</b> ${away.map(a=>`${esc(a.from)} to ${esc(a.to)} (${a.for.map(esc).join(", ")})`).join(", home, ")}</li>`);
-  (c.pack||[]).forEach(p=>notes.push(`<li><b>Pack for ${esc(p.for)}</b> ${p.items.map(esc).join(", ")}</li>`));
   (c.adjustments||[]).filter(a=>!movedNames.some(m=>a.startsWith(m+" "))).forEach(a=>notes.push(`<li><b>Adjusted</b> ${esc(a)}</li>`));
   document.getElementById("tm-notes").innerHTML=notes.join("");
+  document.getElementById("tm-pack").innerHTML=packHTML(c);
   // proposals: what the planner moved, and what is his to move. Accepting is dragging the block in the calendar; the link opens it on the day.
   const cal=`calshow:${Math.round((new Date(tm.getFullYear(),tm.getMonth(),tm.getDate(),12)-Date.UTC(2001,0,1))/1000)}`;
   const open=`<a href="${cal}">Open calendar</a>`, span=p=>p.from?`<span class="mono">${esc(p.from.start)} to ${esc(p.from.end)}</span>`:"";
   const slots=(list,first)=>list.length?`<div class="slots">${list.map((s,i)=>`<span class="slot${first&&i===0?" first":""}">${esc(s.label)}</span>`).join("")}</div>`:"";
-  document.getElementById("tm-props").innerHTML = props.map(p=>{
+  const taps=(p,pi)=>{ const a=accepts.items.find(x=>x.id===acceptId(c,p));
+    return `<div class="slots">${p.slots.map((s,si)=>{ const on=!!a&&a.to.date===s.date&&a.to.start===s.start;
+      return `<button class="slot" type="button" data-acc="${pi}|${si}" aria-pressed="${on}">${esc(s.label)}</button>`; }).join("")}</div>`; };
+  document.getElementById("tm-props").innerHTML = props.map((p,pi)=>{
+    if(p.action==="move" && p.uid && p.slots.length){
+      const a=accepts.items.find(x=>x.id===acceptId(c,p)), chosen=a&&p.slots.find(s=>s.date===a.to.date&&s.start===a.to.start);
+      return `<div class="prop move"><div class="p-h"><span class="tag">Yours to move</span><b>${esc(p.what)}</b>${span(p)}</div><div class="p-w">${esc(p.why)}</div>${taps(p,pi)}
+      <div class="p-a">${chosen?`Accepted ${esc(chosen.label)}: your Mac moves it at its next run. Tap it again to take it back.`:`Tap a slot to accept it; your Mac moves it. Or drag it yourself. ${open}`}</div></div>`;
+    }
     if(p.action==="moved") return `<div class="prop moved"><div class="p-h"><span class="tag">Moved</span><b>${esc(p.what)}</b>${span(p)}</div><div class="p-w">${esc(p.why)}</div>${slots(p.slots,true)}
       <div class="p-a">It is in the first slot. Prefer another? Drag it there in your calendar. ${open}</div></div>`;
     if(p.action==="move") return `<div class="prop move"><div class="p-h"><span class="tag">Yours to move</span><b>${esc(p.what)}</b>${span(p)}</div><div class="p-w">${esc(p.why)}</div>${slots(p.slots,false)}
@@ -518,6 +562,22 @@ document.querySelector(".wrap").addEventListener("click",e=>{   // pick or drop 
   const btn=e.target.closest("button[data-opt]"); if(!btn) return;
   const k=btn.dataset.opt; if(choices.options[k]) delete choices.options[k]; else choices.options[k]="yes";
   choices.dirty=true; ls.set(LS.choices,choices); render(); sync("choice");
+});
+document.querySelector(".wrap").addEventListener("click",e=>{   // accept a slot of a proposal, or take it back
+  const btn=e.target.closest("button[data-acc]"); if(!btn||!tomorrowCard) return;
+  const [pi,si]=btn.dataset.acc.split("|").map(Number), c=tomorrowCard, p=(c.proposals||[])[pi], s=p&&p.slots[si]; if(!s) return;
+  const id=acceptId(c,p), old=accepts.items.find(x=>x.id===id);
+  accepts.items=accepts.items.filter(x=>x.id!==id);
+  if(!(old && old.to.date===s.date && old.to.start===s.start))
+    accepts.items.push({ id, plan_id:c.plan_id, calendar:p.calendar, uid:p.uid, title:p.what, date:p.date, from:p.from, to:{date:s.date,start:s.start,end:s.end}, at:new Date().toISOString() });
+  accepts.dirty=true; ls.set(LS.accepts,accepts); render(); sync("accept");
+});
+document.querySelector(".wrap").addEventListener("click",e=>{   // tick a packed item (this device only)
+  const btn=e.target.closest("button[data-pack]"); if(!btn) return;
+  const date=btn.dataset.pack.slice(0,10), k=btn.dataset.pack.slice(11), today=ymd(now());   // "YYYY-MM-DD/for|item"
+  Object.keys(packTicks).forEach(d=>{ if(d<today) delete packTicks[d]; });
+  const t=packTicks[date]=packTicks[date]||{}; if(t[k]) delete t[k]; else t[k]=true;
+  ls.set(LS.pack,packTicks); render();
 });
 // setup panel
 const setup=document.getElementById("setup");
