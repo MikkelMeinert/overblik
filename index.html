@@ -200,7 +200,7 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
 
   <section class="capture" aria-label="Capture">
     <form id="cap-form">
-      <input id="cap" type="text" autocomplete="off" enterkeyhint="done" placeholder="Capture… (Enter saves as Praktisk)" aria-label="New item">
+      <input id="cap" type="text" autocomplete="off" enterkeyhint="done" placeholder="Capture… (the block is guessed as you type)" aria-label="New item">
       <button class="go" type="submit" id="cap-go">Add</button>
     </form>
     <div class="chips" role="group" aria-label="Block">
@@ -656,12 +656,31 @@ function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;"
 // =====================================================================
 // 5. Interactions
 // =====================================================================
-document.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>{ block=c.dataset.block; document.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed",String(x===c))); document.getElementById("cap").focus(); }));
+// Capture that sorts itself: the block is guessed while he types, from the words of what he filed before (his own items,
+// done ones included) and a few seed words. A chip he taps wins until the item is saved. No signal: Praktisk.
+const SEED = {
+  hus: "reparer fiks skru mal maling vask rengør ryd oprydning hylde lampe pære have bor vindue dør køkken bad badeværelse sofa møbel saml cykel dæk kæde lim repair fix clean paint hang build mount drill shelf garden",
+  fremtid: "overvej reflekter beslut idé ide mål karriere pension invester investering fremtid strategi drøm vision consider decide idea goal career future reflect strategy dream",
+};
+const words = t => (t.toLowerCase().replace(/\(\d+\s*m\)/g," ").match(/[a-zæøåéü]{3,}/g)||[]);
+function guessBlock(text){
+  const w=words(text); if(!w.length) return "praktisk";
+  const score={praktisk:0,hus:0,fremtid:0}, seen={praktisk:{},hus:{},fremtid:{}}, n={praktisk:0,hus:0,fremtid:0};
+  items.forEach(i=>{ if(!seen[i.block]) return; n[i.block]++; new Set(words(i.text)).forEach(x=>{ seen[i.block][x]=(seen[i.block][x]||0)+1; }); });
+  w.forEach(x=>{ BLOCKS.forEach(b=>{ if(seen[b][x]) score[b]+=seen[b][x]/(n[b]+1)*3;   // his own filing counts most
+    if(SEED[b] && SEED[b].split(" ").some(k=>x===k||(k.length>=5&&x.startsWith(k)))) score[b]+=1; }); });
+  const best=BLOCKS.reduce((a,b)=>score[b]>score[a]?b:a,"praktisk");
+  return score[best]>score.praktisk ? best : "praktisk";
+}
+let chipByHand=false;
+const showBlock = b => { block=b; document.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.block===b))); };
+document.getElementById("cap").addEventListener("input",e=>{ if(!chipByHand) showBlock(guessBlock(e.target.value)); });
+document.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>{ chipByHand=true; showBlock(c.dataset.block); document.getElementById("cap").focus(); }));
 document.getElementById("cap-form").addEventListener("submit",e=>{
   e.preventDefault(); const inp=document.getElementById("cap"); const text=inp.value.trim(); if(!text) return;
   const ts=new Date().toISOString();
   items.push({ id:uid(), text, block, created:ymd(now()), updated:ts, done:null }); meta.dirty=true; saveLocal(); inp.value=""; render();
-  block="praktisk"; document.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.block==="praktisk"))); inp.focus();
+  chipByHand=false; showBlock("praktisk"); inp.focus();
   sync("add");
 });
 document.querySelector(".wrap").addEventListener("click",e=>{
