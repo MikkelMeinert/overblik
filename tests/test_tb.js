@@ -11,7 +11,7 @@ const TEMPLATE = { version: 1, anchor_a_monday: '2026-01-05', events: [
 const STATE = { version: 1, appVersion: '1.1.1', stones: [], quarry: [
   { id: 'q-0016', createdAt: '2026-01-02T09:00:00.000Z', updatedAt: '2026-01-02T09:00:00.000Z', text: 'An old idea', source: 'At the office', parentStoneId: null, status: 'open', benchedAsStoneId: null } ],
   books: [ { id: 'b-0006', title: 'Kongens fald', author: 'J. V. Jensen', kind: 'easy', status: 'reading', earnedBy: null, addedAt: '2026-01-01T10:00:00.000Z', updatedAt: '2026-01-01T10:00:00.000Z' } ],
-  readingLog: [ { id: 'r-0001', date: '2026-01-03', bookId: 'b-0006', minutes: 25 } ],
+  readingLog: [ { id: 'r-0001', date: '2026-01-03', bookId: 'b-0006', minutes: 25 }, { id: 'r-0000', date: '2025-12-31', bookId: 'b-0006', minutes: 20 } ],
   counters: { stone: 2, quarry: 16, book: 6, reading: 1, journal: 7 }, settings: { weeklyReadingTarget: 2 }, backup: {} };
 const JOURNAL = '# January 2026\n\n## 2026-01-04 21:10 · j-0007\n\nWritten on the Mac, by hand.\n';
 
@@ -21,7 +21,9 @@ const JOURNAL = '# January 2026\n\n## 2026-01-04 21:10 · j-0007\n\nWritten on t
     try { await fn(); results.push('ok    ' + name); }
     catch (e) { failed++; results.push('FAIL  ' + name + '\n      ' + String(e.message).split('\n')[0]); }
   };
-  const repos = { 'overblik-data': { 'template.json': JSON.stringify(TEMPLATE) }, 'tankebaenken-data': { 'state.json': JSON.stringify(STATE), 'journal/2026-01.md': JOURNAL } };
+  // practice.json as written in December: the app now loads only January's journal, so 31 Dec's journal count must stay.
+  const PRACTICE = { updated: '2025-12-31T22:00:00.000Z', days: { '2025-12-31': { journal: 2, reading_min: 20, reading_sessions: 1, ideas: 0 } } };
+  const repos = { 'overblik-data': { 'template.json': JSON.stringify(TEMPLATE), 'practice.json': JSON.stringify(PRACTICE) }, 'tankebaenken-data': { 'state.json': JSON.stringify(STATE), 'journal/2026-01.md': JOURNAL } };
   let n = 0; const puts = [];
   const handler = async route => {
     const req = route.request(); const u = new URL(req.url()); const repo = u.pathname.split('/')[3]; const p = u.pathname.split('/contents/')[1];
@@ -108,6 +110,11 @@ const JOURNAL = '# January 2026\n\n## 2026-01-04 21:10 · j-0007\n\nWritten on t
     assert.deepStrictEqual(d['2026-01-06'], { journal: 1, reading_min: 70, reading_sessions: 2, ideas: 2 });
     assert.ok(!repos['overblik-data']['practice.json'].includes('roles'));
   });
+  await check('a day in an earlier month keeps its journal count when this month is recounted', async () => {
+    const d = JSON.parse(repos['overblik-data']['practice.json']).days;
+    assert.deepStrictEqual(d['2025-12-31'], { journal: 2, reading_min: 20, reading_sessions: 1, ideas: 0 });
+    assert.strictEqual(d['2026-01-04'].journal, 1);
+  });
   const GR = 'Book Id,Title,Author,Author l-f,Additional Authors,ISBN,ISBN13,My Rating,Bookshelves,Exclusive Shelf\n'
     + '1,"Ulysses",James Joyce,"Joyce, James",,"=""123""","=""9780""",0,"to-read, kat",to-read\n'
     + '2,"Kongens fald",Johannes V. Jensen,"Jensen, Johannes V.",,,,0,"kat",read\n'
@@ -164,6 +171,16 @@ const JOURNAL = '# January 2026\n\n## 2026-01-04 21:10 · j-0007\n\nWritten on t
     assert.strictEqual(repos['tankebaenken-data']['state.json'], undefined);
     assert.ok(!puts.slice(before).some(p => p.includes('state.json')));
     assert.match(await page.textContent('#tb-src'), /waiting to sync/);
+  });
+  // A new month: the first entry creates February's file; January's days keep their journal counts.
+  await ctx.clock.setSystemTime(new Date('2026-02-01T20:45:00+01:00'));
+  await page.click('.tb-tabs [data-tb="journal"]');
+  await page.fill('#tb-j-text', 'First of the month.'); await page.click('#tb-j-save'); await idle();
+  await check('the first entry of a new month starts its file and counts there, the old month keeps its counts', async () => {
+    assert.match(repos['tankebaenken-data']['journal/2026-02.md'], /^# 2026-02\n\n## 2026-02-01 20:45 · j-0009\n/);
+    const d = JSON.parse(repos['overblik-data']['practice.json']).days;
+    assert.strictEqual(d['2026-02-01'].journal, 1);
+    assert.strictEqual(d['2026-01-06'].journal, 1); assert.strictEqual(d['2026-01-04'].journal, 1);
   });
   await check('no page errors', async () => assert.deepStrictEqual(errs, []));
   if (process.env.SHOT) { await page.click('.tb-tabs [data-tb="read"]'); await (await page.$('#tb-sec')).screenshot({ path: process.env.SHOT }); }

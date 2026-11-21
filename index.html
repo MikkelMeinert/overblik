@@ -582,14 +582,14 @@ async function tbSync(){
     const month=monthOf(now()), jpath=`journal/${month}.md`;
     for(let attempt=0; attempt<3; attempt++){
       const f=await ghGet(jpath, tbRepo()); const text=f.missing?null:f.text;
-      if(text!==null){ tb.entries=parseJournalTb(text); tb.month=month; }
+      tb.entries=text!==null?parseJournalTb(text):[]; tb.month=month;   // a month with no file yet has no entries
       const wait=tb.journal.filter(e=>!e.id); if(!wait.length) break;
       let n=Math.max(0, ...(String(text||"").match(/j-(\d{4})/g)||[]).map(x=>+x.slice(2)), ((tb.state||{}).counters||{}).journal||0);
       const ready=wait.map(e=>({ ...e, id:`j-${String(++n).padStart(4,"0")}` }));
       const body=(text===null?`# ${month}\n`:text).replace(/\s*$/,"")+"\n\n"+ready.map(journalBlockTb).join("\n");
       const put=await ghPut(jpath, body.endsWith("\n")?body:body+"\n", f.missing?null:f.sha, `journal: ${ready.length} ${ready.length===1?"entry":"entries"} (Overblik)`, tbRepo());
       if(put.conflict) continue;
-      tb.journal=tb.journal.filter(e=>e.id); tb.counters_j=n; tb.entries=parseJournalTb(body); tbSave(); break;
+      tb.journal=tb.journal.filter(e=>e.id); tb.counters_j=n; tb.entries=parseJournalTb(body); tb.month=month; tbSave(); break;
     }
     // 2. state.json: merge the waiting items in, giving new ones their ids from the counters
     for(let attempt=0; attempt<3; attempt++){
@@ -620,7 +620,10 @@ async function writePractice(){
   tbList("readingLog").forEach(r=>{ add(r.date,"reading_min",+r.minutes||0); add(r.date,"reading_sessions",1); });
   tbList("quarry").forEach(q=>add(String(q.createdAt||"").slice(0,10),"ideas",1));
   const r=await ghGet("practice.json"); let old={}; if(!r.missing){ try{ old=JSON.parse(r.text).days||{}; }catch(e){} }
-  const merged={...old, ...days};   // older months stay as they were written; this month and the state's history are recounted
+  // Only this month's journal file is loaded, so a day in another month keeps the journal count it was written with;
+  // reading and ideas come from the whole state and are recounted for every day.
+  Object.keys(days).forEach(d=>{ if(d.slice(0,7)!==tb.month) days[d].journal=(old[d]||{}).journal||0; });
+  const merged={...old, ...days};
   if(JSON.stringify(merged)===JSON.stringify(old)) return;
   await ghPut("practice.json", JSON.stringify({ updated:isoNow(), days:merged }, null, 1)+"\n", r.missing?null:r.sha, "overblik: practice");
 }
