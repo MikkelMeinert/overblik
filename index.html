@@ -525,6 +525,19 @@ function parseEvent(text, ref){
   title=title?title[0].toUpperCase()+title.slice(1):"Event";
   return { date:ymd(date), start, end, title, dated };
 }
+// ---- repeating to-dos: "hver weekend", "every other week", "hver anden søndag", "hver måned"
+const WD = "mandag|tirsdag|onsdag|torsdag|fredag|lørdag|søndag|monday|tuesday|wednesday|thursday|friday|saturday|sunday";
+function parseRepeat(text){
+  const t=String(text||"").toLowerCase();
+  if(new RegExp(`(hver|every)\\s+(anden|andet|other|2\\.?)\\s+(uge|week|weekend|${WD})`).test(t) || /every\s+2\s+weeks|biweekly|hver\s+14\.?\s+dag/.test(t)) return 14;
+  if(new RegExp(`(hver|every)\\s+(uge|week|weekend|${WD})`).test(t) || /\b(weekly|ugentlig)/.test(t)) return 7;
+  if(/(hver|every)\s+(måned|month)|\b(monthly|månedlig)/.test(t)) return 30;
+  return null;
+}
+const addDays = (date, n) => { const d=new Date(date+"T12:00"); d.setDate(d.getDate()+n); return ymd(d); };
+const daysSince = date => Math.round((new Date(ymd(now())+"T12:00")-new Date(date+"T12:00"))/86400000);
+const isDue = i => !i.done && (!i.due || i.due<=ymd(now()));   // a repeating item waits until its next date
+const doneOn = (i, date) => (i.done && i.done.slice(0,10)===date) || (i.repeat && i.last && i.last.slice(0,10)===date);
 const evLabel = e => `${new Date(e.date+"T12:00").toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}).replace(",","")}`;
 function renderEvents(){
   const sel=document.getElementById("ev-cal"), prev=document.getElementById("ev-prev"), text=document.getElementById("cap").value;
@@ -587,14 +600,14 @@ function setLog(date, e, patch){
 }
 function agendaItems(e, date){
   // what this agenda block holds today: the items done today in its block, then the open ones that fit, oldest first
-  const done=items.filter(i=>i.block===e.block&&i.done&&i.done.slice(0,10)===date);
+  const done=items.filter(i=>i.block===e.block&&doneOn(i,date));
   const cap=toMin(e.end)-toMin(e.start); let used=done.reduce((a,i)=>a+minutesOf(i.text),0); const fits=[];   // done items keep their minutes
-  items.filter(i=>i.block===e.block&&!i.done).sort((x,y)=>x.created.localeCompare(y.created)||x.id.localeCompare(y.id))
+  items.filter(i=>i.block===e.block&&isDue(i)).sort((x,y)=>x.created.localeCompare(y.created)||x.id.localeCompare(y.id))
     .forEach(it=>{ const m=minutesOf(it.text); if(used+m<=cap){ used+=m; fits.push(it); } });
   return done.concat(fits);
 }
 function logAgenda(date, e){   // an agenda block's entry follows its items: done, partly, or nothing yet
-  const list=agendaItems(e,date), done=list.filter(i=>i.done).length, cur=((logBook.days[date]||{})[logKey(e)])||{};
+  const list=agendaItems(e,date), done=list.filter(i=>doneOn(i,date)).length, cur=((logBook.days[date]||{})[logKey(e)])||{};
   if(cur.status==="skipped" && !done) return;
   const status = !done ? null : done===list.length ? "done" : "partly";
   if(cur.status===status && cur.items && cur.items.done===done && cur.items.planned===list.length) return;
@@ -603,8 +616,8 @@ function logAgenda(date, e){   // an agenda block's entry follows its items: don
 function logHTML(date, e){
   const r=((logBook.days[date]||{})[logKey(e)])||{}, k=esc(date+"/"+logKey(e));
   if(e.kind==="block" && BLOCKS.includes(e.block)){
-    const list=agendaItems(e,date), done=list.filter(i=>i.done).length;
-    const rows=list.map(it=>`<li class="item${it.done?" done":""}"><button class="box" aria-label="Mark done" data-id="${esc(it.id)}"><svg viewBox="0 0 12 12" fill="none" stroke-width="2"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg></button><button class="txt" data-id="${esc(it.id)}">${esc(it.text.replace(/\s*\(\d+\s*m\)/i,""))}</button><span class="min">${minutesOf(it.text)} m</span></li>`).join("");
+    const list=agendaItems(e,date), done=list.filter(i=>doneOn(i,date)).length;
+    const rows=list.map(it=>`<li class="item${doneOn(it,date)?" done":""}"><button class="box" aria-label="Mark done" data-id="${esc(it.id)}"><svg viewBox="0 0 12 12" fill="none" stroke-width="2"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg></button><button class="txt" data-id="${esc(it.id)}">${esc(it.text.replace(/\s*\(\d+\s*m\)/i,""))}</button><span class="min">${minutesOf(it.text)} m</span></li>`).join("");
     return `<ul class="items">${rows}</ul><div class="lg"><span class="st">${list.length?`${done} of ${list.length} done; the rest moves on`:"nothing planned"}</span>`
       + `<button type="button" data-log="${k}" data-st="skipped" aria-pressed="${r.status==="skipped"}" style="--c:var(--bad)">Skipped</button></div>`;
   }
@@ -894,11 +907,13 @@ function render(){
   const row=(it,m)=>`<li class="item${it.done?" done":""}${pending(it)?" pending":""}">
       <button class="box" aria-label="Mark done" data-id="${esc(it.id)}"><svg viewBox="0 0 12 12" fill="none" stroke-width="2"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg></button>
       <button class="txt" data-edit="${esc(it.id)}" aria-label="Edit">${esc(it.text.replace(/\s*\(\d+\s*m\)/i,""))}<small>${it.created===today?"today":new Date(it.created).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</small></button>
-      <span class="min">${m} m</span></li>${editing===it.id?`<li class="edit"><input id="e-text" value="${esc(it.text)}" aria-label="Text">
+      <span class="min">${m} m</span></li>${it.repeat&&it.due&&!it.done&&daysSince(it.due)>=2*it.repeat?`<li class="edit rc"><span>Not done for ${Math.round(daysSince(it.due)/7)} weeks. Still worth it?</span>
+      <span class="acts">${[["keep","Keep"],["less","Less often"],["drop","Drop"]].map(([v,l])=>`<button class="pick" data-rc="${esc(it.id)}" data-v="${v}">${l}</button>`).join("")}</span></li>`:""}${editing===it.id?`<li class="edit"><input id="e-text" value="${esc(it.text)}" aria-label="Text">
       <select id="e-block" aria-label="Block">${BLOCKS.concat("app").map(b=>`<option value="${b}"${it.block===b?" selected":""}>${b==="app"?"App wish":label(b)}</option>`).join("")}</select>
+      <select id="e-repeat" aria-label="Repeat">${[["","No repeat"],["7","Every week"],["14","Every other week"],["30","Every month"]].map(([v,l])=>`<option value="${v}"${String(it.repeat||"")===v?" selected":""}>${l}</option>`).join("")}</select>
       <span class="acts"><button class="pick" id="e-save">Save</button><button class="pick" id="e-cancel">Cancel</button></span></li>`:""}`;
   BLOCKS.forEach(b=>{
-    const open=items.filter(i=>i.block===b&&!i.done).sort((x,y)=>x.created.localeCompare(y.created)||x.id.localeCompare(y.id));
+    const open=items.filter(i=>i.block===b&&isDue(i)).sort((x,y)=>x.created.localeCompare(y.created)||x.id.localeCompare(y.id));
     const doneToday=items.filter(i=>i.block===b&&i.done&&(i.done.slice(0,10)===today));
     const nb=nextBlock(b,n,todayCard,tomorrowCard); const cap=nb?nb.minutes:DEFAULT_BLOCK_MIN; let used=0; const fits=[], rolls=[];
     open.forEach(it=>{ const m=minutesOf(it.text); if(used+m<=cap){used+=m;fits.push([it,m]);} else rolls.push([it,m]); });
@@ -1056,10 +1071,21 @@ document.getElementById("b-toggle").addEventListener("click",()=>{ backlogOpen=!
 document.querySelector(".wrap").addEventListener("click",e=>{
   const ed=e.target.closest("button[data-edit]"); if(ed){ editing=ed.dataset.edit; render(); const f=document.getElementById("e-text"); if(f) f.focus(); return; }
   if(e.target.closest("#e-cancel")){ editing=null; render(); return; }
+  const rc=e.target.closest("button[data-rc]");
+  if(rc){   // a repeating item that keeps not getting done: keep it, halve how often, or drop it
+    const it=items.find(i=>i.id===rc.dataset.rc); if(!it) return; const ts=new Date().toISOString();
+    if(rc.dataset.v==="less"){ it.repeat=it.repeat*2; it.due=ymd(now()); }
+    else if(rc.dataset.v==="drop"){ delete it.repeat; delete it.due; it.done=ts; }
+    else it.due=ymd(now());
+    it.updated=ts; meta.dirty=true; saveLocal(); render(); sync(rc.dataset.v==="drop"?"done":"edit"); return;
+  }
   if(e.target.closest("#e-save")){
-    const it=items.find(i=>i.id===editing), text=document.getElementById("e-text").value.trim(), b=document.getElementById("e-block").value;
+    const it=items.find(i=>i.id===editing), text=document.getElementById("e-text").value.trim(), b=document.getElementById("e-block").value, r=+document.getElementById("e-repeat").value||null;
     editing=null;
-    if(it && text && (text!==it.text || b!==it.block)){ it.text=text; it.block=b; it.updated=new Date().toISOString(); meta.dirty=true; saveLocal(); render(); sync("edit"); }
+    if(it && text && (text!==it.text || b!==it.block || r!==(it.repeat||null))){
+      it.text=text; it.block=b;
+      if(r!==(it.repeat||null)){ if(r){ it.repeat=r; it.due=it.due||ymd(now()); } else { delete it.repeat; delete it.due; } }
+      it.updated=new Date().toISOString(); meta.dirty=true; saveLocal(); render(); sync("edit"); }
     else render();
   }
 });
@@ -1076,14 +1102,20 @@ document.getElementById("cap-form").addEventListener("submit",e=>{
     inp.value=""; cal.value="Transport"; chipByHand=false; showBlock("praktisk"); render(); inp.focus(); sync("event"); return;
   }
   if(block==="idea"){ tbAddIdea(text, "Captured in Overblik"); inp.value=""; chipByHand=false; showBlock("praktisk"); render(); inp.focus(); tbSync(); return; }
-  items.push({ id:uid(), text, block, created:ymd(now()), updated:ts, done:null }); meta.dirty=true; saveLocal(); inp.value=""; render();
+  const every=parseRepeat(text);
+  items.push({ id:uid(), text, block, created:ymd(now()), updated:ts, done:null, ...(every?{ repeat:every, due:ymd(now()) }:{}) }); meta.dirty=true; saveLocal(); inp.value=""; render();
   chipByHand=false; showBlock("praktisk"); inp.focus();
   sync("add");
 });
 document.querySelector(".wrap").addEventListener("click",e=>{
   const btn=e.target.closest("button[data-id]"); if(!btn) return;
   const it=items.find(i=>i.id===btn.dataset.id); if(!it) return;
-  const ts=new Date().toISOString(); it.done = it.done ? null : ts; it.updated=ts; meta.dirty=true; saveLocal();
+  const ts=new Date().toISOString(), today=ymd(now());
+  if(it.repeat && !it.done){
+    if(it.last && it.last.slice(0,10)===today && it.prevDue!==undefined){ it.due=it.prevDue; it.last=it.prevLast||null; it.count=Math.max(0,(it.count||1)-1); delete it.prevDue; delete it.prevLast; }
+    else { it.prevDue=it.due||today; it.prevLast=it.last||null; it.last=ts; it.count=(it.count||0)+1; it.due=addDays(today,it.repeat); }
+  } else it.done = it.done ? null : ts;
+  it.updated=ts; meta.dirty=true; saveLocal();
   const d=todayCard||templateDay(now()), nm=now().getHours()*60+now().getMinutes();   // an agenda block that has started logs its items
   ((d&&d.events)||[]).filter(x=>x.kind==="block"&&x.block===it.block&&toMin(x.start)<=nm).forEach(x=>logAgenda(ymd(now()),x));
   render(); sync(it.done?"done":"undo");
