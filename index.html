@@ -176,6 +176,12 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
       <button class="btn" type="button" id="s-close">Close</button>
       <span class="msg" id="s-msg"></span>
     </div>
+    <h2>Evening push</h2>
+    <div class="row">
+      <button class="btn" type="button" id="p-toggle">Turn on evening push</button>
+      <span class="msg" id="p-msg"></span>
+    </div>
+    <p>One push at about 18:17: one line when there is nothing to decide, the plan when there is a decision or something to pack, and again later only if something new comes up. Per device; on the iPhone it works in the Home Screen app only.</p>
     <p>The token stays in this browser only. Items are written to <span class="mono">inbox.json</span> in the data repo on every change; the planner reads that file each morning and evening. The week under Today comes from <span class="mono">template.json</span> in the same repo.</p>
   </section>
 
@@ -298,7 +304,7 @@ function nextBlock(block, from, card, later){
 // =====================================================================
 // 2. State: items (inbox.json), cards, settings
 // =====================================================================
-const LS = { items:"overblik.items", cfg:"overblik.cfg", meta:"overblik.meta", tpl:"overblik.tpl", choices:"overblik.choices", accepts:"overblik.accepts", pack:"overblik.pack" };
+const LS = { items:"overblik.items", cfg:"overblik.cfg", meta:"overblik.meta", tpl:"overblik.tpl", choices:"overblik.choices", accepts:"overblik.accepts", pack:"overblik.pack", device:"overblik.device" };
 const ls = { get(k,f){ try{ const v=localStorage.getItem(k); return v==null?f:JSON.parse(v);}catch(e){return f;} }, set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
 let items = ls.get(LS.items, []);          // [{id,text,block,created,updated,done}]
 let cfg   = ls.get(LS.cfg, {owner:"",repo:"overblik-data",branch:"main",token:""});
@@ -581,7 +587,7 @@ document.querySelector(".wrap").addEventListener("click",e=>{   // tick a packed
 });
 // setup panel
 const setup=document.getElementById("setup");
-function openSetup(){ setup.hidden=false; document.getElementById("s-owner").value=cfg.owner; document.getElementById("s-repo").value=cfg.repo; document.getElementById("s-branch").value=cfg.branch; document.getElementById("s-token").value=cfg.token; document.getElementById("s-msg").textContent=""; }
+function openSetup(){ setup.hidden=false; document.getElementById("s-owner").value=cfg.owner; document.getElementById("s-repo").value=cfg.repo; document.getElementById("s-branch").value=cfg.branch; document.getElementById("s-token").value=cfg.token; document.getElementById("s-msg").textContent=""; refreshPush(); }
 document.getElementById("status").addEventListener("click",openSetup);
 document.getElementById("f-setup").addEventListener("click",openSetup);
 document.getElementById("s-close").addEventListener("click",()=>{ setup.hidden=true; });
@@ -591,6 +597,54 @@ document.getElementById("s-save").addEventListener("click",async()=>{
   if(!configured()){ msg.textContent="user, repo and token are all needed"; return; }
   msg.textContent="testing…"; await sync("setup");
   msg.textContent = meta.dirty ? "could not reach the repo (check token scope and repo name)" : "connected"; if(!meta.dirty) setTimeout(()=>{ setup.hidden=true; },600);
+});
+// =====================================================================
+// 6. Offline shell and evening push. sw.js caches the shell; push.json in the data repo holds one subscription
+//    per device (this app is its only writer) and planner/action.py sends to it. The public VAPID key is public
+//    by design; its private half is an Actions secret in the data repo.
+// =====================================================================
+const VAPID_PUBLIC = "BA5-PP6hRj3PKSKwOBQNsg-MaLYWeps02eG4Eh0-Zk1mfaxYYjLKVQ6LIyLJEQhRCxrL8KYwVyf22XWI9LBYGDQ";
+const swOK = "serviceWorker" in navigator && (location.protocol==="https:" || ["localhost","127.0.0.1"].includes(location.hostname));
+if(swOK) navigator.serviceWorker.register("sw.js").catch(e=>console.warn(e));
+const standalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone===true;
+function deviceId(){ let d=ls.get(LS.device,null); if(!d){ d=uid(); ls.set(LS.device,d); } return d; }
+function deviceName(){ const u=navigator.userAgent; return /iPhone/.test(u)?"iPhone":/iPad/.test(u)?"iPad":/Android/.test(u)?"Android":/Mac/.test(u)?"Mac":"browser"; }
+function b64uBytes(s){ const b=atob((s+"=".repeat((4-s.length%4)%4)).replace(/-/g,"+").replace(/_/g,"/")); return Uint8Array.from(b,c=>c.charCodeAt(0)); }
+async function pushFile(update){   // re-read, drop this device's entry, let update() add it back or not, write; retry on a conflict
+  for(let attempt=0; attempt<3; attempt++){
+    const r=await ghGet("push.json"); let subs=[]; if(!r.missing){ try{ subs=JSON.parse(r.text).subscriptions||[]; }catch(e){} }
+    const next=update(subs.filter(x=>x.device_id!==deviceId()));
+    const put=await ghPut("push.json", JSON.stringify({updated:new Date().toISOString(),subscriptions:next},null,1)+"\n", r.missing?null:r.sha, `overblik: push (${next.length} device${next.length===1?"":"s"})`);
+    if(!put.conflict) return;
+  }
+  throw new Error("push.json: could not write");
+}
+async function pushSub(){ const reg=await navigator.serviceWorker.ready; return { reg, sub: await reg.pushManager.getSubscription() }; }
+let pushIsOn=false;   // as last read; lets a tap ask for permission before any await (Safari wants it inside the tap)
+async function refreshPush(){
+  const btn=document.getElementById("p-toggle"), msg=document.getElementById("p-msg");
+  if(!swOK || !("PushManager" in window) || !("Notification" in window)){
+    btn.disabled=true; msg.textContent = standalone() ? "not available in this browser" : "open Overblik from the Home Screen to use push"; return;
+  }
+  btn.disabled=false;
+  try{ const { sub }=await pushSub(); pushIsOn=!!sub; btn.textContent = sub ? "Turn off evening push" : "Turn on evening push";
+    msg.textContent = sub ? "on for this device" : (Notification.permission==="denied" ? "notifications are blocked for Overblik in Settings" : "off"); }
+  catch(e){ msg.textContent="could not read the push state"; }
+}
+document.getElementById("p-toggle").addEventListener("click",async()=>{
+  const msg=document.getElementById("p-msg");
+  if(!configured()){ msg.textContent="set up the data repo first"; return; }
+  try{
+    const asked = pushIsOn ? null : Notification.requestPermission();
+    const { reg, sub }=await pushSub();
+    if(sub){ await sub.unsubscribe(); await pushFile(list=>list); }
+    else{
+      if(await (asked || Notification.requestPermission())!=="granted"){ msg.textContent="notifications were not allowed"; return; }
+      const j=(await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64uBytes(VAPID_PUBLIC) })).toJSON();
+      await pushFile(list=>[...list,{ device_id:deviceId(), device:deviceName(), endpoint:j.endpoint, keys:j.keys, at:new Date().toISOString() }]);
+    }
+  }catch(e){ console.warn(e); msg.textContent="failed: "+e.message; return; }
+  refreshPush();
 });
 window.addEventListener("online",()=>sync("online"));
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden) sync("resume"); });
