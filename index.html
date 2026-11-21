@@ -103,7 +103,8 @@ input, select, textarea { font-size: 16px !important; }
 .tb-pane { display: grid; gap: 8px; }
 .tb-pane textarea, .tb-row input[type=text], .tb-row select { font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); width: 100%; box-sizing: border-box; }
 .tb-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.tb-row input[type=text] { flex: 1 1 120px; width: auto; }
+.tb-row input[type=text], .tb-row input[type=search] { flex: 1 1 120px; width: auto; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); }
+.tb-list .acts select { font-size: 16px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--fg-2); }
 .tb-own { font-size: 13px; color: var(--fg-2); display: flex; gap: 4px; align-items: center; }
 .tb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .tb-list li { font-size: 13.5px; border-bottom: 1px solid var(--line); padding: 6px 0; display: grid; gap: 4px; }
@@ -289,6 +290,7 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
         <div class="tb-row"><input id="tb-imp" type="file" accept=".csv,text/csv" multiple><button class="btn" type="button" id="tb-imp-go">Import</button></div>
         <div class="tb-note" id="tb-imp-msg"></div>
       </details>
+      <div class="tb-row"><input id="tb-lib-q" type="search" placeholder="search the library (title or author)" autocomplete="off"></div>
       <div id="tb-lib"></div>
     </div>
     <div id="tb-ideas" class="tb-pane" hidden>
@@ -637,15 +639,21 @@ function renderTb(n){
     `<li><small>${esc(e.date)} ${esc(e.time||"")}${e.waiting?" · not synced":""}</small><span>${esc(e.text.length>220?e.text.slice(0,220)+"…":e.text)}</span>`
     + (e.id && !promoted.has(e.id) ? `<span class="acts"><button type="button" data-tbpromote="${esc(e.id)}">→ idea</button></span>` : "") + `</li>`).join("") || '<li><small>Nothing this month yet.</small></li>';
   // reading: books to pick, minutes as one tap, the recent sessions
-  const sel=document.getElementById("tb-r-book"), keep=sel.value, readable=books.filter(b=>b.status!=="done");
-  sel.innerHTML='<option value="">which book?</option>'+readable.sort((a,b)=>(a.status==="reading"?0:1)-(b.status==="reading"?0:1)||a.title.localeCompare(b.title)).map(b=>`<option value="${esc(b.id)}">${esc(b.title)}${b.status==="reading"?" (reading)":""}</option>`).join("");
+  const sel=document.getElementById("tb-r-book"), keep=sel.value, byTitle=(a,b)=>a.title.localeCompare(b.title);
+  const opts=(label,list)=>list.length?`<optgroup label="${label}">${list.sort(byTitle).map(b=>`<option value="${esc(b.id)}">${esc(b.title)}${b.status==="reading"?" (reading)":""}</option>`).join("")}</optgroup>`:"";
+  sel.innerHTML='<option value="">which book?</option>'+opts("Reading now",books.filter(b=>b.status==="reading"))+opts("On the shelf",books.filter(b=>b.status==="shelf"))+opts("Read",books.filter(b=>b.status==="done"));
   if(keep) sel.value=(tb.idmap||{})[keep]||keep;   // a book picked while its id came back from the sync stays picked
   const title=id=>(books.find(b=>b.id===id)||{}).title||"a book";
   document.getElementById("tb-r-list").innerHTML = logs.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,4).map(r=>`<li><small>${esc(r.date)}</small><span>${esc(title(r.bookId))}: ${esc(r.minutes)} min</span></li>`).join("");
   const nextSt={ shelf:"reading", reading:"done", done:"shelf" }, stName={ shelf:"on the shelf", reading:"reading", done:"read" };
+  const bookActs=b=>`<span class="acts"><select data-tbstatus="${esc(b.id)}" aria-label="Status of ${esc(b.title)}">${["shelf","reading","done"].map(st=>`<option value="${st}"${b.status===st?" selected":""}>${stName[st]}</option>`).join("")}</select><button type="button" data-tbbook="${esc(b.id)}" data-f="kind">${b.kind==="easy"?"fiction":"thinking"}</button>${b.owned?"<small>owned</small>":""}</span>`;
   const group=(h,list,open)=>list.length?`<details${open?" open":""}><summary class="tb-lib-h">${h} (${list.length})</summary><ul class="tb-list">${list.sort((a,b)=>a.title.localeCompare(b.title)).map(b=>`<li><span>${esc(b.title)}${b.author?` <small>${esc(b.author)}</small>`:""}</span>`
-    + `<span class="acts"><button type="button" data-tbbook="${esc(b.id)}" data-f="kind">${b.kind==="easy"?"fiction":"thinking"}</button><button type="button" data-tbbook="${esc(b.id)}" data-f="status">${stName[b.status]||b.status}</button>${b.owned?"<small>owned</small>":""}</span></li>`).join("")}</ul></details>`:"";
-  document.getElementById("tb-lib").innerHTML = group("Reading now", books.filter(b=>b.status==="reading"), true) + group("On the shelf", books.filter(b=>b.status==="shelf")) + group("Read", books.filter(b=>b.status==="done"));
+    + bookActs(b) + `</li>`).join("")}</ul></details>`:"";
+  const q=normKey(document.getElementById("tb-lib-q").value);
+  if(q){ const hits=books.filter(b=>normKey(b.title+" "+b.author).includes(q)).sort((a,b)=>a.title.localeCompare(b.title));
+    document.getElementById("tb-lib").innerHTML = hits.length ? `<ul class="tb-list">${hits.slice(0,40).map(b=>`<li><span>${esc(b.title)}${b.author?` <small>${esc(b.author)}</small>`:""}</span>${bookActs(b)}</li>`).join("")}</ul>` + (hits.length>40?`<div class="tb-note">${hits.length-40} more; type more of the title</div>`:"")
+      : `<div class="tb-note">Not in the library. Add it above.</div>`; }
+  else document.getElementById("tb-lib").innerHTML = group("Reading now", books.filter(b=>b.status==="reading"), true) + group("On the shelf", books.filter(b=>b.status==="shelf")) + group("Read", books.filter(b=>b.status==="done"));
   tbNext = nextSt;
   // ideas: open first; discuss one with Claude in one tap, keep it for later, or mark it worked
   const order={ open:0, kept:1, worked:2 };
@@ -725,9 +733,9 @@ function setStatus(text, cls){ const s=document.getElementById("status"); s.text
 // 4. Render
 // =====================================================================
 let renderHeld=false;   // a note being typed is not wiped by a re-render; the render waits until he leaves the field
-document.addEventListener("focusout",ev=>{ if(ev.target.matches&&ev.target.matches("input.ln")&&renderHeld){ renderHeld=false; setTimeout(render,0); } });
+document.addEventListener("focusout",ev=>{ if(ev.target.matches&&ev.target.matches("input.ln, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")&&renderHeld){ renderHeld=false; setTimeout(render,0); } });
 function render(){
-  const a=document.activeElement; if(a&&a.matches&&a.matches("input.ln")){ renderHeld=true; return; }
+  const a=document.activeElement; if(a&&a.matches&&a.matches("input.ln, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")){ renderHeld=true; return; }
   const n=now(); const day = todayCard || templateDay(n) || { week:null, events:[], info:[] };
   document.getElementById("h-date").textContent = n.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
   const wk = day.week || weekLetter(n), wkNote = wk && template && template.week_notes && template.week_notes[wk];
@@ -1022,6 +1030,12 @@ document.getElementById("tb-b-add").addEventListener("click",()=>{
   tbAddBook(t.value.trim(), document.getElementById("tb-b-author").value.trim(), document.getElementById("tb-b-kind").value, document.getElementById("tb-b-status").value, document.getElementById("tb-b-owned").checked);
   t.value=""; document.getElementById("tb-b-author").value=""; render(); tbSync();
 });
+document.querySelector(".wrap").addEventListener("change",ev=>{
+  const sel=ev.target.closest("select[data-tbstatus]"); if(!sel) return;
+  const b=tbList("books").find(x=>x.id===sel.dataset.tbstatus); if(!b) return;
+  tbPut("books",{ ...b, status:sel.value, updatedAt:isoNow() }); render(); tbSync();
+});
+document.getElementById("tb-lib-q").addEventListener("input",()=>renderTb(now()));
 document.getElementById("tb-imp-go").addEventListener("click",async()=>{
   const files=[...document.getElementById("tb-imp").files], msg=document.getElementById("tb-imp-msg"); if(!files.length){ msg.textContent="pick a file first"; return; }
   try{ const parsed=await Promise.all(files.map(f=>f.text().then(parseCsv)));

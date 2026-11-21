@@ -140,6 +140,18 @@ const JOURNAL = '# January 2026\n\n## 2026-01-04 21:10 · j-0007\n\nWritten on t
   await check('a book\'s kind and status change with a tap', async () => {
     assert.strictEqual(state().books.find(x => x.id === 'b-0006').kind, 'thinking');
   });
+  await page.fill('#tb-lib-q', 'kongens');
+  await check('the library is searchable by title or author', async () => {
+    const hits = await page.$$eval('#tb-lib li > span:first-child', els => els.map(e => e.textContent));
+    assert.deepStrictEqual(hits, ['Kongens fald J. V. Jensen']);
+  });
+  await page.selectOption('select[data-tbstatus="b-0006"]', 'done'); await idle();
+  await check('status is a plain choice per book: on the shelf, reading, read', async () => {
+    assert.strictEqual(state().books.find(x => x.id === 'b-0006').status, 'done');
+    const groups = await page.$$eval('#tb-r-book optgroup', els => els.map(e => e.label));
+    assert.deepStrictEqual(groups, ['Reading now', 'On the shelf', 'Read'], 'every book can be picked to log, read ones too');
+  });
+  await page.fill('#tb-lib-q', '');
   const again = puts.length;
   await page.click('#tb-imp-go'); await page.waitForFunction(() => !/Syncing/.test(document.getElementById('tb-imp-msg').textContent), null, { timeout: 5000 }); await idle();
   await check('importing the same files again adds nothing', async () => {
