@@ -90,6 +90,12 @@ header .sub { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
 .lg .st { font-size: 12px; color: var(--fg-2); }
 .tl .items { list-style: none; margin: 6px 0 0; padding: 0; }
 .tl .items .item { padding: 6px 0; }
+.bc-day { margin: 6px 0 2px; font: 500 11px/1.2 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-3); }
+.bc-row { display: grid; grid-template-columns: 96px 1fr; gap: 10px; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.bc-row .t { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.bc-row .w { color: var(--fg-2); }
+.bc-row.member .w b { color: var(--ok); font-weight: 500; }
+.bc-row.dim { opacity: 0.5; }
 .notes { list-style: none; margin: 0; padding: 0 0 0 67px; display: grid; gap: 3px; font-size: 12.5px; color: var(--fg-2); }
 .notes li b { font-weight: 500; color: var(--fg); }
 .notes .conf { color: var(--bad); }
@@ -224,6 +230,12 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
     <div class="src" id="tm-src"></div>
   </section>
 
+  <section class="sec" id="bc-sec" hidden aria-label="Beach">
+    <div class="head"><h2>Beach</h2><span class="count mono" id="bc-count"></span></div>
+    <div id="bc"></div>
+    <div class="src" id="bc-src"></div>
+  </section>
+
   <section class="sec" aria-label="Next up">
     <div class="head"><h2>Next up</h2><span class="count mono" id="i-count"></span></div>
     <div id="groups"></div>
@@ -320,6 +332,7 @@ let template = ls.get(LS.tpl, null); if(!validTemplate(template)) template=null;
 let templateError=false;                   // true when the repo copy failed validation on the last sync
 let todayCard=null, tomorrowCard=null, eveningToday=null, todayFromEvening=false, stonesCard=null, block="praktisk";
 let choices = ls.get(LS.choices, {options:{},dirty:false});   // options picked per date: {"YYYY-MM-DD|title":"yes"}; written to choices.json
+let beachCard = null;   // beach.json from the hub, never stored on the device
 let logBook = ls.get(LS.log, {days:{},dirty:false});        // block-by-block log: {"YYYY-MM-DD": {"HH:MM|name": entry}}; written to log.json
 let accepts = ls.get(LS.accepts, {items:[],dirty:false});      // proposals accepted with a tap; written to accepts.json, applied by the Mac job
 let packTicks = ls.get(LS.pack, {});                           // {"YYYY-MM-DD": {"for|item": true}}: this device only, never written to the repo
@@ -473,6 +486,8 @@ async function loadCards(){
       eveningToday = (m && m.date===ymd(now())) ? m : null;   // last evening's plan for today: it holds today's packing list
       todayCard = todayFromEvening ? m : t;
       tomorrowCard = (m && m.date===ymd(tomorrowOf(now()))) ? m : null; })(),
+    // beach.json: written by the cphbeach Action. Optional; the Beach card shows only when it exists and reads.
+    (async()=>{ try{ const r=await ghGet("beach.json"); beachCard = r.missing? null : JSON.parse(r.text); }catch(e){ beachCard=null; } })(),
     // tankebaenken.json: written by the Tankebænken app. Optional.
     (async()=>{ try{ const r=await ghGet("tankebaenken.json"); stonesCard = r.missing? null : JSON.parse(r.text); }catch(e){ stonesCard=null; } })(),
     // template.json: the template week, edited by hand. A copy that fails validation never replaces the last good one.
@@ -538,6 +553,7 @@ function render(){
   document.getElementById("b-count").textContent=backCount?`${backCount} waiting`:"empty";
   if(!backCount) bl.innerHTML='<div class="empty">Everything open fits in the next blocks.</div>';
 
+  renderBeach(n);
   const ss=document.getElementById("stones-sec");
   if(stonesCard && Array.isArray(stonesCard.stones) && stonesCard.stones.length){
     ss.hidden=false; document.getElementById("st-count").textContent=`top ${Math.min(3,stonesCard.stones.length)} stones`;
@@ -547,6 +563,31 @@ function render(){
   document.getElementById("f-note").textContent = configured()
     ? `${items.filter(i=>!i.done).length} open · ${cfg.owner}/${cfg.repo}` + (meta.dirty?" · changes waiting to sync":"")
     : "Not connected: items stay in this browser until setup is done.";
+}
+function renderBeach(n){
+  // Free indoor courts for the next 7 days, grouped by day. Member courts are free to book now; chance courts are free by
+  // calling the hall within 24 hours, or booked publicly. Morning rows are dimmed (a maybe). Stale after 12 hours.
+  const sec=document.getElementById("bc-sec"), b=beachCard; sec.hidden=!b; if(!b) return;
+  const today=ymd(n), last=ymd(new Date(n.getFullYear(),n.getMonth(),n.getDate()+6)), nm=n.getHours()*60+n.getMinutes();
+  const keep=r=>r && r.date>=today && r.date<=last && HHMM.test(r.start||"") && HHMM.test(r.end||"") && !(r.date===today && toMin(r.end)<=nm);
+  const rows={}; [["member",b.member_free],["chance",b.chance]].forEach(([src,list])=>(Array.isArray(list)?list:[]).filter(keep).forEach(r=>{
+    const k=`${r.date}|${r.start}|${src}`; (rows[k]=rows[k]||{...r,src,courts:[]}).courts.push(r.court); }));
+  const list=Object.values(rows).sort((x,y)=>(x.date+x.start).localeCompare(y.date+y.start)||x.src.localeCompare(y.src));
+  const blocked=b.blocked_until&&new Date(b.blocked_until)>n ? new Date(b.blocked_until) : null;
+  const dayName=d=>{ const x=new Date(d+"T12:00:00"); return dayWord(x,n); };
+  let html="", cur="";
+  list.forEach(r=>{
+    if(r.date!==cur){ cur=r.date; html+=`<div class="bc-day">${esc(dayName(r.date))}</div>`; }
+    const courts=r.courts.length>1?` · ${r.courts.length} courts`:"";
+    const how = r.src==="member" ? (blocked ? "member · blocked by your booking" : "<b>member, free</b>")
+      : `chance · call from ${esc(new Date(r.call_from||"").toLocaleString("en-GB",{weekday:"short",hour:"2-digit",minute:"2-digit"}))}${r.public_price?` or ${esc(r.public_price)} kr.`:""}`;
+    html+=`<div class="bc-row ${r.src}${r.tier==="morning"?" dim":""}"><span class="t">${esc(r.start)} to ${esc(r.end)}</span><span class="w">${esc(r.tier||"")} · ${how}${courts}</span></div>`;
+  });
+  document.getElementById("bc").innerHTML = html || '<div class="empty">No free courts in the next 7 days.</div>';
+  document.getElementById("bc-count").textContent = list.length ? `${list.filter(r=>r.tier!=="morning").length} slots` : "";
+  const age=(n-new Date(b.generated))/36e5;
+  document.getElementById("bc-src").textContent = `checked ${clock(b.generated)}` + (isNaN(age)?"":age>12?` · stale: last checked ${Math.floor(age)} h ago`:"")
+    + (blocked?` · your booking blocks member courts until ${blocked.toLocaleString("en-GB",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}`:"");
 }
 function timeline(tl, day, date, nowMin){
   // One day's rows. nowMin is null for a day that is not today (nothing is past, nothing is "now"). Returns minutes outside work.
