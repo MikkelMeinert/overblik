@@ -65,6 +65,13 @@ header .sub { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
 .sec { display: grid; gap: 8px; }
 .sec .head { display: flex; justify-content: space-between; align-items: baseline; }
 .sec .count { font-size: 12px; color: var(--fg-3); }
+.fold { all: unset; cursor: pointer; display: inline-flex; align-items: baseline; gap: 6px; }
+.fold::after { content: "▸"; font-size: 12px; color: var(--fg-3); transition: transform .15s; }
+.fold[aria-expanded="true"]::after { transform: rotate(90deg); }
+.fold:focus-visible { outline: 2px solid var(--fg-3); outline-offset: 2px; }
+.edit { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 6px 0 10px 30px; }
+.edit input, .edit select { font: inherit; font-size: 16px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--fg); min-width: 0; }
+.edit .acts { grid-column: 1 / -1; display: flex; gap: 8px; }
 .tl { list-style: none; margin: 0; padding: 0; display: grid; }
 .tl > li { display: grid; grid-template-columns: 52px 3px 1fr; column-gap: 12px; min-height: 34px; }
 .tl .t { font-family: var(--font-mono); font-size: 12.5px; color: var(--fg-2); font-variant-numeric: tabular-nums; padding-top: 7px; }
@@ -300,7 +307,7 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
   </section>
 
   <section class="sec backlog" aria-label="Backlog">
-    <div class="head"><h2>Backlog</h2><span class="count mono" id="b-count"></span></div>
+    <div class="head"><h2><button class="fold" id="b-toggle" aria-expanded="false" aria-controls="backlog">Backlog</button></h2><span class="count mono" id="b-count"></span></div>
     <div id="backlog"></div>
   </section>
 
@@ -736,9 +743,9 @@ function setStatus(text, cls){ const s=document.getElementById("status"); s.text
 // 4. Render
 // =====================================================================
 let renderHeld=false;   // a note being typed is not wiped by a re-render; the render waits until he leaves the field
-document.addEventListener("focusout",ev=>{ if(ev.target.matches&&ev.target.matches("input.ln, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")&&renderHeld){ renderHeld=false; setTimeout(render,0); } });
+document.addEventListener("focusout",ev=>{ if(ev.target.matches&&ev.target.matches("input.ln, #e-text, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")&&renderHeld){ renderHeld=false; setTimeout(render,0); } });
 function render(){
-  const a=document.activeElement; if(a&&a.matches&&a.matches("input.ln, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")){ renderHeld=true; return; }
+  const a=document.activeElement; if(a&&a.matches&&a.matches("input.ln, #e-text, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")){ renderHeld=true; return; }
   const n=now(); const day = todayCard || templateDay(n) || { week:null, events:[], info:[] };
   document.getElementById("h-date").textContent = n.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
   const wk = day.week || weekLetter(n), wkNote = wk && template && template.week_notes && template.week_notes[wk];
@@ -763,8 +770,10 @@ function render(){
   const pending=it=>meta.dirty && (!meta.lastSync || (it.updated||"")>meta.lastSync);
   const row=(it,m)=>`<li class="item${it.done?" done":""}${pending(it)?" pending":""}">
       <button class="box" aria-label="Mark done" data-id="${esc(it.id)}"><svg viewBox="0 0 12 12" fill="none" stroke-width="2"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg></button>
-      <button class="txt" data-id="${esc(it.id)}">${esc(it.text.replace(/\s*\(\d+\s*m\)/i,""))}<small>${it.created===today?"today":new Date(it.created).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</small></button>
-      <span class="min">${m} m</span></li>`;
+      <button class="txt" data-edit="${esc(it.id)}" aria-label="Edit">${esc(it.text.replace(/\s*\(\d+\s*m\)/i,""))}<small>${it.created===today?"today":new Date(it.created).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</small></button>
+      <span class="min">${m} m</span></li>${editing===it.id?`<li class="edit"><input id="e-text" value="${esc(it.text)}" aria-label="Text">
+      <select id="e-block" aria-label="Block">${BLOCKS.map(b=>`<option value="${b}"${it.block===b?" selected":""}>${label(b)}</option>`).join("")}</select>
+      <span class="acts"><button class="pick" id="e-save">Save</button><button class="pick" id="e-cancel">Cancel</button></span></li>`:""}`;
   BLOCKS.forEach(b=>{
     const open=items.filter(i=>i.block===b&&!i.done).sort((x,y)=>x.created.localeCompare(y.created)||x.id.localeCompare(y.id));
     const doneToday=items.filter(i=>i.block===b&&i.done&&(i.done.slice(0,10)===today));
@@ -786,6 +795,7 @@ function render(){
   document.getElementById("i-count").textContent=`${nextCount} planned · ${items.filter(i=>i.done&&i.done.slice(0,10)===today).length} done today`;
   document.getElementById("b-count").textContent=backCount?`${backCount} waiting`:"empty";
   if(!backCount) bl.innerHTML='<div class="empty">Everything open fits in the next blocks.</div>';
+  bl.hidden=!backlogOpen; document.getElementById("b-toggle").setAttribute("aria-expanded",String(backlogOpen));
 
   renderBeach(n);
   renderTb(n);
@@ -904,6 +914,19 @@ function guessBlock(text){
   return score[best]>score.praktisk ? best : "praktisk";
 }
 let chipByHand=false;
+// Backlog folded by default, remembered per device. Tapping an item's text edits it (words and block); the box marks it done.
+let backlogOpen=ls.get("overblik.backlogOpen",false), editing=null;
+document.getElementById("b-toggle").addEventListener("click",()=>{ backlogOpen=!backlogOpen; ls.set("overblik.backlogOpen",backlogOpen); render(); });
+document.querySelector(".wrap").addEventListener("click",e=>{
+  const ed=e.target.closest("button[data-edit]"); if(ed){ editing=ed.dataset.edit; render(); const f=document.getElementById("e-text"); if(f) f.focus(); return; }
+  if(e.target.closest("#e-cancel")){ editing=null; render(); return; }
+  if(e.target.closest("#e-save")){
+    const it=items.find(i=>i.id===editing), text=document.getElementById("e-text").value.trim(), b=document.getElementById("e-block").value;
+    editing=null;
+    if(it && text && (text!==it.text || b!==it.block)){ it.text=text; it.block=b; it.updated=new Date().toISOString(); meta.dirty=true; saveLocal(); render(); sync("edit"); }
+    else render();
+  }
+});
 const showBlock = b => { block=b; document.querySelectorAll(".capture .chip").forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.block===b))); };
 document.getElementById("cap").addEventListener("input",e=>{ if(!chipByHand) showBlock(guessBlock(e.target.value)); });
 document.querySelectorAll(".capture .chip").forEach(c=>c.addEventListener("click",()=>{ chipByHand=true; showBlock(c.dataset.block); document.getElementById("cap").focus(); }));

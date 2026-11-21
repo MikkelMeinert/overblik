@@ -46,6 +46,29 @@ const APP = 'file://' + path.resolve(__dirname, '..', 'index.html');
     assert.strictEqual(await pressed(), 'praktisk', 'reset after saving');
     await page.type('#cap', 'Mal stuen'); assert.strictEqual(await pressed(), 'hus', 'guessing again for the next item');
   });
+  await check('the backlog is folded until he opens it, and stays as he left it', async () => {
+    assert.strictEqual(await page.$eval('#backlog', e => e.hidden), true);
+    assert.strictEqual(await page.getAttribute('#b-toggle', 'aria-expanded'), 'false');
+    await page.click('#b-toggle');
+    assert.strictEqual(await page.$eval('#backlog', e => e.hidden), false);
+    await page.reload();
+    assert.strictEqual(await page.$eval('#backlog', e => e.hidden), false, 'open after a reload');
+    await page.click('#b-toggle'); assert.strictEqual(await page.$eval('#backlog', e => e.hidden), true);
+  });
+  await check('tapping an item\'s text edits it: new words and another block, not done', async () => {
+    await page.click('button.txt[data-edit="1"]');
+    assert.strictEqual(await page.$eval('[data-id="1"].box', () => 1), 1);
+    await page.fill('#e-text', 'Kalendergaver til mor og far (20m)'); await page.selectOption('#e-block', 'hus'); await page.click('#e-save');
+    const it = await page.evaluate(() => JSON.parse(localStorage.getItem('overblik.items')).find(i => i.id === '1'));
+    assert.strictEqual(it.text, 'Kalendergaver til mor og far (20m)'); assert.strictEqual(it.block, 'hus'); assert.strictEqual(it.done, null);
+    assert.notStrictEqual(it.updated, 'x', 'updated, so the newest wins on merge');
+    assert.ok(!(await page.$('#e-text')), 'editor closed');
+  });
+  await check('cancel leaves the item as it was', async () => {
+    await page.click('button.txt[data-edit="3"]'); await page.fill('#e-text', 'something else'); await page.click('#e-cancel');
+    const it = await page.evaluate(() => JSON.parse(localStorage.getItem('overblik.items')).find(i => i.id === '3'));
+    assert.strictEqual(it.text, 'Tænk over næste skridt i jobbet');
+  });
   await check('no page errors', async () => assert.deepStrictEqual(errs, []));
   await browser.close();
   console.log(results.join('\n'));
