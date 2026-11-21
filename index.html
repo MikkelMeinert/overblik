@@ -96,6 +96,8 @@ header .sub { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
 .bc-row .w { color: var(--fg-2); }
 .bc-row.member .w b { color: var(--ok); font-weight: 500; }
 .bc-row.dim { opacity: 0.5; }
+/* iOS zooms into any field under 16px and stays zoomed, which pushed Setup out of reach (21 Nov) */
+input, select, textarea { font-size: 16px !important; }
 .tb-tabs { margin: 4px 0 8px; }
 .tb-tabs .chip::before { display: none; }
 .tb-pane { display: grid; gap: 8px; }
@@ -108,6 +110,8 @@ header .sub { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
 .tb-list li small { color: var(--fg-3); font-size: 12px; }
 .tb-list .acts { display: flex; gap: 6px; flex-wrap: wrap; }
 .tb-list .acts button, .tb-list .acts a { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2); text-decoration: none; }
+.tb-note { font-size: 12.5px; color: var(--fg-2); margin: 4px 0; }
+.tb-lib details summary { cursor: pointer; }
 .tb-add summary { font-size: 13px; color: var(--fg-2); cursor: pointer; }
 .tb-lib-h { font: 500 11px/1.2 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-3); margin-top: 6px; }
 .notes { list-style: none; margin: 0; padding: 0 0 0 67px; display: grid; gap: 3px; font-size: 12.5px; color: var(--fg-2); }
@@ -279,6 +283,11 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
           <select id="tb-b-status"><option value="shelf">on the shelf</option><option value="reading">reading now</option><option value="done">read</option></select>
           <label class="tb-own"><input id="tb-b-owned" type="checkbox" checked> I own it</label>
           <button class="btn" type="button" id="tb-b-add">Add</button></div>
+      </details>
+      <details class="tb-add"><summary>Import from Goodreads</summary>
+        <p class="tb-note">Pick the Goodreads export, and any extra list in the same format (Title, Author, Bookshelves). Books on the shelf "kat" are added as owned; a book already in the library is not added twice. Status comes from Goodreads (read, reading, to-read).</p>
+        <div class="tb-row"><input id="tb-imp" type="file" accept=".csv,text/csv" multiple><button class="btn" type="button" id="tb-imp-go">Import</button></div>
+        <div class="tb-note" id="tb-imp-msg"></div>
       </details>
       <div id="tb-lib"></div>
     </div>
@@ -633,8 +642,11 @@ function renderTb(n){
   if(keep) sel.value=(tb.idmap||{})[keep]||keep;   // a book picked while its id came back from the sync stays picked
   const title=id=>(books.find(b=>b.id===id)||{}).title||"a book";
   document.getElementById("tb-r-list").innerHTML = logs.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,4).map(r=>`<li><small>${esc(r.date)}</small><span>${esc(title(r.bookId))}: ${esc(r.minutes)} min</span></li>`).join("");
-  const group=(h,list)=>list.length?`<div class="tb-lib-h">${h} (${list.length})</div><ul class="tb-list">${list.map(b=>`<li><span>${esc(b.title)}${b.author?` <small>${esc(b.author)}</small>`:""}</span><small>${b.kind==="easy"?"fiction / easy":"thinking"}${b.owned?" · owned":""}</small></li>`).join("")}</ul>`:"";
-  document.getElementById("tb-lib").innerHTML = group("Reading now", books.filter(b=>b.status==="reading")) + group("On the shelf", books.filter(b=>b.status==="shelf")) + group("Read", books.filter(b=>b.status==="done"));
+  const nextSt={ shelf:"reading", reading:"done", done:"shelf" }, stName={ shelf:"on the shelf", reading:"reading", done:"read" };
+  const group=(h,list,open)=>list.length?`<details${open?" open":""}><summary class="tb-lib-h">${h} (${list.length})</summary><ul class="tb-list">${list.sort((a,b)=>a.title.localeCompare(b.title)).map(b=>`<li><span>${esc(b.title)}${b.author?` <small>${esc(b.author)}</small>`:""}</span>`
+    + `<span class="acts"><button type="button" data-tbbook="${esc(b.id)}" data-f="kind">${b.kind==="easy"?"fiction":"thinking"}</button><button type="button" data-tbbook="${esc(b.id)}" data-f="status">${stName[b.status]||b.status}</button>${b.owned?"<small>owned</small>":""}</span></li>`).join("")}</ul></details>`:"";
+  document.getElementById("tb-lib").innerHTML = group("Reading now", books.filter(b=>b.status==="reading"), true) + group("On the shelf", books.filter(b=>b.status==="shelf")) + group("Read", books.filter(b=>b.status==="done"));
+  tbNext = nextSt;
   // ideas: open first; discuss one with Claude in one tap, keep it for later, or mark it worked
   const order={ open:0, kept:1, worked:2 };
   document.getElementById("tb-i-list").innerHTML = ideas.filter(q=>q.status!=="benched").sort((a,b)=>(order[a.status]??3)-(order[b.status]??3)||String(b.createdAt).localeCompare(String(a.createdAt))).slice(0,12).map(q=>
@@ -644,6 +656,43 @@ function renderTb(n){
     + (q.status!=="worked"?`<button type="button" data-tbidea="${esc(q.id)}" data-st="worked">Worked</button>`:`<button type="button" data-tbidea="${esc(q.id)}" data-st="open">Reopen</button>`)
     + `</span></li>`).join("") || '<li><small>No ideas yet. Capture one with the Idé chip.</small></li>';
   document.getElementById("tb-src").textContent = (tb.dirty||tb.journal.some(e=>!e.id)) ? "changes waiting to sync to tankebaenken-data" : tb.synced ? `synced ${clock(tb.synced)} with ${tbRepo()}` : "";
+}
+let tbNext={};
+function parseCsv(text){   // RFC 4180: quoted fields, doubled quotes, newlines inside quotes
+  const rows=[]; let row=[], f="", q=false;
+  for(let i=0;i<text.length;i++){ const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){ f+='"'; i++; } else q=false; } else f+=c; }
+    else if(c==='"') q=true; else if(c===","){ row.push(f); f=""; } else if(c==="\n"||c==="\r"){ if(c==="\r"&&text[i+1]==="\n") i++; row.push(f); rows.push(row); row=[]; f=""; } else f+=c; }
+  if(f!==""||row.length){ row.push(f); rows.push(row); }
+  const head=(rows.shift()||[]).map(h=>h.trim().replace(/^\uFEFF/,""));
+  return rows.filter(r=>r.some(x=>x.trim())).map(r=>Object.fromEntries(head.map((h,i)=>[h,(r[i]||"").trim()])));
+}
+const normKey = s => String(s||"").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/ø/g,"o").replace(/æ/g,"ae").replace(/[^a-z0-9]+/g," ").trim();
+const lastName = a => normKey(String(a||"").split(",")[0]).split(" ").pop()||"";
+const bookKey = (title, author) => normKey(String(title).replace(/\s*\([^)]*\)\s*$/,"")) + "|" + lastName(author);
+const shortKey = (title, author) => normKey(String(title).replace(/\s*\([^)]*\)\s*$/,"").split(/[:.]/)[0]) + "|" + lastName(author);
+function keyIndex(list, title, author){   // full title first; the part before a colon only when it names one book ("Lila" for "Lila: An Inquiry Into Morals")
+  const full=new Map(), short=new Map();
+  list.forEach(x=>{ full.set(bookKey(title(x),author(x)),x); const k=shortKey(title(x),author(x)); short.set(k, short.has(k)?null:x); });
+  const cut=t=>/[:.]/.test(String(t).replace(/\s*\([^)]*\)\s*$/,""));   // two subtitled titles ("…: Las dos torres") are different books
+  return (t,a)=>{ const f=full.get(bookKey(t,a)); if(f) return f; const x=short.get(shortKey(t,a)); return x && !(cut(t)&&cut(title(x))) ? x : null; };
+}
+function tbImport(files){
+  // Goodreads rows (with a Book Id) give the status; rows on the shelf "kat", from any file, are the books he owns.
+  const all=files.flat(), shelves=r=>String(r["Bookshelves"]||"").split(",").map(x=>x.trim());
+  const status=r=>({ "read":"done", "currently-reading":"reading" })[r["Exclusive Shelf"]]||"shelf";
+  const grFind=keyIndex(all.filter(r=>r["Book Id"]), r=>r.Title, r=>r.Author);
+  const lib=tbList("books"); let haveFind=keyIndex(lib, b=>b.title, b=>b.author);
+  let added=0, updated=0, same=0;
+  all.filter(r=>r.Title && shelves(r).includes("kat")).forEach(r=>{
+    const src=grFind(r.Title,r.Author)||r, b=haveFind(r.Title,r.Author);
+    if(b){ if(!b.owned){ tbPut("books",{ ...b, owned:true, updatedAt:isoNow() }); updated++; } else same++; return; }
+    const title=String(r.Title).replace(/\s*\([^)]*#[^)]*\)\s*$/,"");   // "(Series, #2)" goes
+    const nb=tbAddBook(title, r.Author||"", r.Kind==="easy"?"easy":"thinking", status(src), true);
+    if(src["Book Id"]) tbPut("books",{ ...nb, goodreads:src["Book Id"] });
+    lib.push(nb); haveFind=keyIndex(lib, b=>b.title, b=>b.author); added++;
+  });
+  return { added, updated, same };
 }
 function claudeLink(q){   // one tap from an idea to a mentoring conversation, the prompt already written
   const prompt = `Be my mentor on an idea I noted down. Do not do the thinking for me: ask, push back, point me to good reading, and steer me away from weak sources. At the end, tell me in one line whether this is worth keeping for later investigation, and what the next question would be.\n\nThe idea (${String(q.createdAt||"").slice(0,10)}${q.source?", "+q.source:""}):\n${q.text}`;
@@ -973,7 +1022,17 @@ document.getElementById("tb-b-add").addEventListener("click",()=>{
   tbAddBook(t.value.trim(), document.getElementById("tb-b-author").value.trim(), document.getElementById("tb-b-kind").value, document.getElementById("tb-b-status").value, document.getElementById("tb-b-owned").checked);
   t.value=""; document.getElementById("tb-b-author").value=""; render(); tbSync();
 });
+document.getElementById("tb-imp-go").addEventListener("click",async()=>{
+  const files=[...document.getElementById("tb-imp").files], msg=document.getElementById("tb-imp-msg"); if(!files.length){ msg.textContent="pick a file first"; return; }
+  try{ const parsed=await Promise.all(files.map(f=>f.text().then(parseCsv)));
+    const r=tbImport(parsed); msg.textContent=`${r.added} books added, ${r.updated} marked as owned, ${r.same} already there. Syncing…`;
+    render(); await tbSync(); msg.textContent=`${r.added} books added, ${r.updated} marked as owned, ${r.same} already there.`; }
+  catch(e){ msg.textContent="could not read the file: "+e.message; }
+});
 document.querySelector(".wrap").addEventListener("click",ev=>{
+  const bk=ev.target.closest("button[data-tbbook]"); if(bk){ const b=tbList("books").find(x=>x.id===bk.dataset.tbbook); if(b){
+    const ch = bk.dataset.f==="kind" ? { kind: b.kind==="easy"?"thinking":"easy" } : { status: tbNext[b.status]||"shelf" };
+    tbPut("books",{ ...b, ...ch, updatedAt:isoNow() }); render(); tbSync(); } return; }
   const pr=ev.target.closest("button[data-tbpromote]"); if(pr){ const e=(tb.entries||[]).find(x=>x.id===pr.dataset.tbpromote); if(e){ tbAddIdea(e.text, "Journal · "+e.date, e.id); render(); tbSync(); } return; }
   const id=ev.target.closest("button[data-tbidea]"); if(id){ tbIdeaStatus(id.dataset.tbidea, id.dataset.st); render(); tbSync(); return; }
   const go=ev.target.closest("button[data-tbgo]"); if(go){ tbTab=go.dataset.tbgo; render(); document.getElementById("tb-sec").scrollIntoView({behavior:"smooth"}); }

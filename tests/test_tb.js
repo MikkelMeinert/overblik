@@ -108,7 +108,45 @@ const JOURNAL = '# January 2026\n\n## 2026-01-04 21:10 · j-0007\n\nWritten on t
     assert.deepStrictEqual(d['2026-01-06'], { journal: 1, reading_min: 70, reading_sessions: 2, ideas: 2 });
     assert.ok(!repos['overblik-data']['practice.json'].includes('roles'));
   });
+  const GR = 'Book Id,Title,Author,Author l-f,Additional Authors,ISBN,ISBN13,My Rating,Bookshelves,Exclusive Shelf\n'
+    + '1,"Ulysses",James Joyce,"Joyce, James",,"=""123""","=""9780""",0,"to-read, kat",to-read\n'
+    + '2,"Kongens fald",Johannes V. Jensen,"Jensen, Johannes V.",,,,0,"kat",read\n'
+    + '3,"The Plague",Albert Camus,"Camus, Albert",,,,0,"read, kat",read\n'
+    + '4,"Kindred",Octavia E. Butler,"Butler, Octavia E.",,,,0,"",read\n'
+    + '5,"A Book I Do Not Own",Someone Else,,,,,0,"to-read",to-read\n'
+    + '6,"Satantango (Apocalypse Quartet, #1)",László Krasznahorkai,,,,,0,"kat, to-read",currently-reading\n'
+    + '7,"Din foranderlige bevidsthed: Den nye videnskab",Michael Pollan,,,,,0,"",read\n';
+  const EXTRA = 'Title,Author,Bookshelves,Exclusive Shelf,Kind,Note\nKindred,Octavia E. Butler,kat,to-read,easy,in Goodreads without kat\nRegensens visebog,,kat,to-read,easy,\nEl Señor de los Anillos: Las dos torres,J.R.R. Tolkien,kat,to-read,easy,\nEl Señor de los Anillos: El retorno del rey,J.R.R. Tolkien,kat,to-read,easy,\nDin foranderlige bevidsthed,Michael Pollan,kat,to-read,thinking,\n';
+  await page.click('.tb-tabs [data-tb="read"]');
+  await page.click('text=Import from Goodreads');
+  await page.setInputFiles('#tb-imp', [{ name: 'goodreads.csv', mimeType: 'text/csv', buffer: Buffer.from(GR) }, { name: 'extra.csv', mimeType: 'text/csv', buffer: Buffer.from(EXTRA) }]);
+  await page.click('#tb-imp-go'); await page.waitForFunction(() => !/Syncing/.test(document.getElementById('tb-imp-msg').textContent), null, { timeout: 5000 }); await idle();
+  await check('Goodreads import: owned books only, status from Goodreads, no duplicates, the extra list too', async () => {
+    const b = state().books, t = x => b.find(y => y.title === x);
+    assert.match(await page.textContent('#tb-imp-msg'), /^8 books added, 1 marked as owned, 0 already there\.$/);
+    assert.strictEqual(t('Ulysses').status, 'shelf'); assert.strictEqual(t('Ulysses').owned, true); assert.strictEqual(t('Ulysses').goodreads, '1');
+    assert.strictEqual(t('The Plague').status, 'done');
+    assert.strictEqual(t('Satantango').status, 'reading', 'the series suffix goes, currently-reading is reading');
+    assert.strictEqual(t('Kindred').status, 'done', 'in the extra list as owned, the status still comes from Goodreads');
+    assert.strictEqual(t('Kindred').kind, 'easy');
+    assert.ok(t('Regensens visebog'), 'a book with no author');
+    assert.ok(t('El Señor de los Anillos: Las dos torres') && t('El Señor de los Anillos: El retorno del rey'), 'two volumes with the same series title stay two books');
+    assert.strictEqual(t('Din foranderlige bevidsthed').status, 'done', 'a short title finds its Goodreads row with a subtitle');
+    assert.ok(!t('A Book I Do Not Own'), 'not on the shelf kat: not in the library');
+    assert.strictEqual(b.filter(x => x.title === 'Kongens fald').length, 1, 'already in the library: marked owned, not added again');
+    assert.strictEqual(t('Kongens fald').owned, true);
+  });
+  await page.click('[data-tbbook="b-0006"][data-f="kind"]'); await idle();
+  await check('a book\'s kind and status change with a tap', async () => {
+    assert.strictEqual(state().books.find(x => x.id === 'b-0006').kind, 'thinking');
+  });
+  const again = puts.length;
+  await page.click('#tb-imp-go'); await page.waitForFunction(() => !/Syncing/.test(document.getElementById('tb-imp-msg').textContent), null, { timeout: 5000 }); await idle();
+  await check('importing the same files again adds nothing', async () => {
+    assert.match(await page.textContent('#tb-imp-msg'), /^0 books added, 0 marked as owned, 9 already there\.$/);
+  });
   delete repos['tankebaenken-data']['state.json']; const before = puts.length;
+  await page.click('.tb-tabs [data-tb="ideas"]');
   await page.click('[data-tbidea="q-0017"][data-st="worked"]'); await idle();
   await check('a state.json that cannot be read is never created or overwritten', async () => {
     assert.strictEqual(repos['tankebaenken-data']['state.json'], undefined);
