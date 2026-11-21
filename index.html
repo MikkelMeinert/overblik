@@ -60,7 +60,7 @@ header .sub { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
 .chip { font-size: 12.5px; font-weight: 500; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2); display: inline-flex; align-items: center; gap: 6px; }
 .chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
 .chip[aria-pressed="true"] { border-color: var(--c); color: var(--fg); background: color-mix(in srgb, var(--c) 10%, transparent); }
-.chip.praktisk { --c: var(--praktisk); } .chip.hus { --c: var(--hus); } .chip.fremtid { --c: var(--fremtid); } .chip.idea { --c: var(--quiet); }
+.chip.praktisk { --c: var(--praktisk); } .chip.hus { --c: var(--hus); } .chip.fremtid { --c: var(--fremtid); } .chip.idea { --c: var(--quiet); } .chip.app { --c: var(--accent); }
 
 .sec { display: grid; gap: 8px; }
 .sec .head { display: flex; justify-content: space-between; align-items: baseline; }
@@ -150,7 +150,7 @@ button.slot[aria-pressed="true"] { background: color-mix(in srgb, var(--ok) 22%,
 .group .gh { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 0 0 6px; border-bottom: 2px solid var(--c); }
 .group .gh .name { font-family: var(--font-display); font-weight: 600; font-size: 15px; color: var(--c); }
 .group .gh .when { font-family: var(--font-mono); font-size: 12px; color: var(--fg-2); text-align: right; font-variant-numeric: tabular-nums; }
-.group.praktisk { --c: var(--praktisk); } .group.hus { --c: var(--hus); } .group.fremtid { --c: var(--fremtid); }
+.group.praktisk { --c: var(--praktisk); } .group.hus { --c: var(--hus); } .group.fremtid { --c: var(--fremtid); } .group.app { --c: var(--accent); }
 .items { list-style: none; margin: 0; padding: 0; }
 .item { display: grid; grid-template-columns: 22px 1fr auto; column-gap: 10px; align-items: start; padding: 9px 0; border-bottom: 1px solid var(--line); }
 .item:last-child { border-bottom: 0; }
@@ -236,6 +236,7 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
       <button class="chip hus" type="button" data-block="hus" aria-pressed="false">Hus</button>
       <button class="chip fremtid" type="button" data-block="fremtid" aria-pressed="false">Fremtid</button>
       <button class="chip idea" type="button" data-block="idea" aria-pressed="false">Idé</button>
+      <button class="chip app" type="button" data-block="app" aria-pressed="false">App</button>
     </div>
   </section>
 
@@ -309,6 +310,11 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
   <section class="sec backlog" aria-label="Backlog">
     <div class="head"><h2><button class="fold" id="b-toggle" aria-expanded="false" aria-controls="backlog">Backlog</button></h2><span class="count mono" id="b-count"></span></div>
     <div id="backlog"></div>
+  </section>
+
+  <section class="sec backlog" aria-label="App wishes">
+    <div class="head"><h2><button class="fold" id="a-toggle" aria-expanded="false" aria-controls="apps">App wishes</button></h2><span class="count mono" id="a-count"></span></div>
+    <div id="apps" hidden></div>
   </section>
 
   <footer>
@@ -772,7 +778,7 @@ function render(){
       <button class="box" aria-label="Mark done" data-id="${esc(it.id)}"><svg viewBox="0 0 12 12" fill="none" stroke-width="2"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg></button>
       <button class="txt" data-edit="${esc(it.id)}" aria-label="Edit">${esc(it.text.replace(/\s*\(\d+\s*m\)/i,""))}<small>${it.created===today?"today":new Date(it.created).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</small></button>
       <span class="min">${m} m</span></li>${editing===it.id?`<li class="edit"><input id="e-text" value="${esc(it.text)}" aria-label="Text">
-      <select id="e-block" aria-label="Block">${BLOCKS.map(b=>`<option value="${b}"${it.block===b?" selected":""}>${label(b)}</option>`).join("")}</select>
+      <select id="e-block" aria-label="Block">${BLOCKS.concat("app").map(b=>`<option value="${b}"${it.block===b?" selected":""}>${b==="app"?"App wish":label(b)}</option>`).join("")}</select>
       <span class="acts"><button class="pick" id="e-save">Save</button><button class="pick" id="e-cancel">Cancel</button></span></li>`:""}`;
   BLOCKS.forEach(b=>{
     const open=items.filter(i=>i.block===b&&!i.done).sort((x,y)=>x.created.localeCompare(y.created)||x.id.localeCompare(y.id));
@@ -796,6 +802,11 @@ function render(){
   document.getElementById("b-count").textContent=backCount?`${backCount} waiting`:"empty";
   if(!backCount) bl.innerHTML='<div class="empty">Everything open fits in the next blocks.</div>';
   bl.hidden=!backlogOpen; document.getElementById("b-toggle").setAttribute("aria-expanded",String(backlogOpen));
+  // App wishes: what he wants changed in Overblik itself. Read by each session; never planned into a block.
+  const ap=document.getElementById("apps"), wishes=items.filter(i=>i.block==="app"&&(!i.done||i.done.slice(0,10)===today)).sort((x,y)=>x.created.localeCompare(y.created));
+  ap.innerHTML=wishes.length?`<section class="group app"><ul class="items">${wishes.map(it=>row(it,minutesOf(it.text))).join("")}</ul></section>`:'<div class="empty">No wishes open. Tap App when you capture one.</div>';
+  ap.hidden=!appsOpen; document.getElementById("a-toggle").setAttribute("aria-expanded",String(appsOpen));
+  document.getElementById("a-count").textContent=`${items.filter(i=>i.block==="app"&&!i.done).length} open`;
 
   renderBeach(n);
   renderTb(n);
@@ -906,6 +917,7 @@ const SEED = {
 const words = t => (t.toLowerCase().replace(/\(\d+\s*m\)/g," ").match(/[a-zæøåéü]{3,}/g)||[]);
 function guessBlock(text){
   const w=words(text); if(!w.length) return "praktisk";
+  if(/\b(app|appen|feature|features|improvement)\b/i.test(text)) return "app";   // wishes for Overblik itself: their own list
   const score={praktisk:0,hus:0,fremtid:0}, seen={praktisk:{},hus:{},fremtid:{}}, n={praktisk:0,hus:0,fremtid:0};
   items.forEach(i=>{ if(!seen[i.block]) return; n[i.block]++; new Set(words(i.text)).forEach(x=>{ seen[i.block][x]=(seen[i.block][x]||0)+1; }); });
   w.forEach(x=>{ BLOCKS.forEach(b=>{ if(seen[b][x]) score[b]+=seen[b][x]/(n[b]+1)*3;   // his own filing counts most
@@ -915,7 +927,8 @@ function guessBlock(text){
 }
 let chipByHand=false;
 // Backlog folded by default, remembered per device. Tapping an item's text edits it (words and block); the box marks it done.
-let backlogOpen=ls.get("overblik.backlogOpen",false), editing=null;
+let backlogOpen=ls.get("overblik.backlogOpen",false), appsOpen=ls.get("overblik.appsOpen",false), editing=null;
+document.getElementById("a-toggle").addEventListener("click",()=>{ appsOpen=!appsOpen; ls.set("overblik.appsOpen",appsOpen); render(); });
 document.getElementById("b-toggle").addEventListener("click",()=>{ backlogOpen=!backlogOpen; ls.set("overblik.backlogOpen",backlogOpen); render(); });
 document.querySelector(".wrap").addEventListener("click",e=>{
   const ed=e.target.closest("button[data-edit]"); if(ed){ editing=ed.dataset.edit; render(); const f=document.getElementById("e-text"); if(f) f.focus(); return; }

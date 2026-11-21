@@ -69,6 +69,20 @@ const APP = 'file://' + path.resolve(__dirname, '..', 'index.html');
     const it = await page.evaluate(() => JSON.parse(localStorage.getItem('overblik.items')).find(i => i.id === '3'));
     assert.strictEqual(it.text, 'Tænk over næste skridt i jobbet');
   });
+  await check('wishes for the app get their own chip and list, out of the to-do blocks', async () => {
+    await type('Feature for the app: dark mode'); assert.strictEqual(await pressed(), 'app');
+    await page.press('#cap', 'Enter');
+    const it = await page.evaluate(() => JSON.parse(localStorage.getItem('overblik.items')).find(i => i.text === 'Feature for the app: dark mode'));
+    assert.strictEqual(it.block, 'app');
+    assert.ok(!(await page.textContent('#groups')).includes('dark mode'), 'not in Next up');
+    assert.strictEqual(await page.$eval('#apps', e => e.hidden), true, 'folded');
+    await page.click('#a-toggle'); assert.match(await page.textContent('#apps'), /dark mode/);
+    assert.match(await page.textContent('#a-count'), /1 open/);
+  });
+  await check('an item can be moved into the App list by editing it', async () => {
+    await page.click('button.txt[data-edit="3"]'); await page.selectOption('#e-block', 'app'); await page.click('#e-save');
+    assert.match(await page.textContent('#apps'), /næste skridt/);
+  });
   await check('no page errors', async () => assert.deepStrictEqual(errs, []));
   await browser.close();
   console.log(results.join('\n'));
