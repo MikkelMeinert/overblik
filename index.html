@@ -60,7 +60,7 @@ header .sub { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
 .chip { font-size: 12.5px; font-weight: 500; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2); display: inline-flex; align-items: center; gap: 6px; }
 .chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
 .chip[aria-pressed="true"] { border-color: var(--c); color: var(--fg); background: color-mix(in srgb, var(--c) 10%, transparent); }
-.chip.praktisk { --c: var(--praktisk); } .chip.hus { --c: var(--hus); } .chip.fremtid { --c: var(--fremtid); }
+.chip.praktisk { --c: var(--praktisk); } .chip.hus { --c: var(--hus); } .chip.fremtid { --c: var(--fremtid); } .chip.idea { --c: var(--quiet); }
 
 .sec { display: grid; gap: 8px; }
 .sec .head { display: flex; justify-content: space-between; align-items: baseline; }
@@ -96,6 +96,20 @@ header .sub { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
 .bc-row .w { color: var(--fg-2); }
 .bc-row.member .w b { color: var(--ok); font-weight: 500; }
 .bc-row.dim { opacity: 0.5; }
+.tb-tabs { margin: 4px 0 8px; }
+.tb-tabs .chip::before { display: none; }
+.tb-pane { display: grid; gap: 8px; }
+.tb-pane textarea, .tb-row input[type=text], .tb-row select { font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); width: 100%; box-sizing: border-box; }
+.tb-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tb-row input[type=text] { flex: 1 1 120px; width: auto; }
+.tb-own { font-size: 13px; color: var(--fg-2); display: flex; gap: 4px; align-items: center; }
+.tb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.tb-list li { font-size: 13.5px; border-bottom: 1px solid var(--line); padding: 6px 0; display: grid; gap: 4px; }
+.tb-list li small { color: var(--fg-3); font-size: 12px; }
+.tb-list .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.tb-list .acts button, .tb-list .acts a { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2); text-decoration: none; }
+.tb-add summary { font-size: 13px; color: var(--fg-2); cursor: pointer; }
+.tb-lib-h { font: 500 11px/1.2 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-3); margin-top: 6px; }
 .notes { list-style: none; margin: 0; padding: 0 0 0 67px; display: grid; gap: 3px; font-size: 12.5px; color: var(--fg-2); }
 .notes li b { font-weight: 500; color: var(--fg); }
 .notes .conf { color: var(--bad); }
@@ -183,7 +197,8 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
     <label>GitHub user <input id="s-owner" autocapitalize="off" autocorrect="off" placeholder="your-github-user"></label>
     <label>Data repo (private) <input id="s-repo" autocapitalize="off" autocorrect="off" value="overblik-data"></label>
     <label>Branch <input id="s-branch" autocapitalize="off" autocorrect="off" value="main"></label>
-    <label>Fine-grained token (Contents: read and write on that repo only) <input id="s-token" type="password" autocapitalize="off" autocorrect="off" placeholder="github_pat_…"></label>
+    <label>Tankebænken repo (private) <input id="s-tbrepo" autocapitalize="off" autocorrect="off" value="tankebaenken-data"></label>
+    <label>Fine-grained token (Contents: read and write on those two repos only) <input id="s-token" type="password" autocapitalize="off" autocorrect="off" placeholder="github_pat_…"></label>
     <div class="row">
       <button class="btn primary" type="button" id="s-save">Save and sync</button>
       <button class="btn" type="button" id="s-close">Close</button>
@@ -208,6 +223,7 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
       <button class="chip praktisk" type="button" data-block="praktisk" aria-pressed="true">Praktisk</button>
       <button class="chip hus" type="button" data-block="hus" aria-pressed="false">Hus</button>
       <button class="chip fremtid" type="button" data-block="fremtid" aria-pressed="false">Fremtid</button>
+      <button class="chip idea" type="button" data-block="idea" aria-pressed="false">Idé</button>
     </div>
   </section>
 
@@ -241,9 +257,35 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
     <div id="groups"></div>
   </section>
 
-  <section class="sec" id="stones-sec" hidden aria-label="Tankebænken">
-    <div class="head"><h2>Tankebænken</h2><span class="count mono" id="st-count"></span></div>
-    <ol class="stone-list" id="stones"></ol>
+  <section class="sec" id="tb-sec" aria-label="Tankebænken">
+    <div class="head"><h2>Tankebænken</h2><span class="count mono" id="tb-count"></span></div>
+    <div class="chips tb-tabs" role="group" aria-label="Tankebænken">
+      <button class="chip" type="button" data-tb="journal" aria-pressed="true">Journal</button>
+      <button class="chip" type="button" data-tb="read" aria-pressed="false">Read</button>
+      <button class="chip" type="button" data-tb="ideas" aria-pressed="false">Ideas</button>
+    </div>
+    <div id="tb-journal" class="tb-pane">
+      <textarea id="tb-j-text" rows="4" placeholder="Write. No template, no obligation."></textarea>
+      <div class="tb-row"><input id="tb-j-where" type="text" placeholder="where (optional)"><button class="btn primary" type="button" id="tb-j-save">Save</button></div>
+      <ul class="tb-list" id="tb-j-list"></ul>
+    </div>
+    <div id="tb-read" class="tb-pane" hidden>
+      <div class="tb-row"><select id="tb-r-book"></select></div>
+      <div class="tb-row tb-mins"><button class="pick" type="button" data-min="15">15 m</button><button class="pick" type="button" data-min="25">25 m</button><button class="pick" type="button" data-min="45">45 m</button><button class="pick" type="button" data-min="60">60 m</button></div>
+      <ul class="tb-list" id="tb-r-list"></ul>
+      <details class="tb-add"><summary>Add a book to the library</summary>
+        <div class="tb-row"><input id="tb-b-title" type="text" placeholder="title"><input id="tb-b-author" type="text" placeholder="author"></div>
+        <div class="tb-row"><select id="tb-b-kind"><option value="thinking">thinking</option><option value="easy">fiction / easy</option></select>
+          <select id="tb-b-status"><option value="shelf">on the shelf</option><option value="reading">reading now</option><option value="done">read</option></select>
+          <label class="tb-own"><input id="tb-b-owned" type="checkbox" checked> I own it</label>
+          <button class="btn" type="button" id="tb-b-add">Add</button></div>
+      </details>
+      <div id="tb-lib"></div>
+    </div>
+    <div id="tb-ideas" class="tb-pane" hidden>
+      <ul class="tb-list" id="tb-i-list"></ul>
+    </div>
+    <div class="src" id="tb-src"></div>
   </section>
 
   <section class="sec backlog" aria-label="Backlog">
@@ -323,14 +365,14 @@ function nextBlock(block, from, card, later){
 // =====================================================================
 // 2. State: items (inbox.json), cards, settings
 // =====================================================================
-const LS = { items:"overblik.items", cfg:"overblik.cfg", meta:"overblik.meta", tpl:"overblik.tpl", choices:"overblik.choices", accepts:"overblik.accepts", pack:"overblik.pack", device:"overblik.device", log:"overblik.log" };
+const LS = { items:"overblik.items", cfg:"overblik.cfg", meta:"overblik.meta", tpl:"overblik.tpl", choices:"overblik.choices", accepts:"overblik.accepts", pack:"overblik.pack", device:"overblik.device", log:"overblik.log", tb:"overblik.tb" };
 const ls = { get(k,f){ try{ const v=localStorage.getItem(k); return v==null?f:JSON.parse(v);}catch(e){return f;} }, set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
 let items = ls.get(LS.items, []);          // [{id,text,block,created,updated,done}]
 let cfg   = ls.get(LS.cfg, {owner:"",repo:"overblik-data",branch:"main",token:""});
 let meta  = ls.get(LS.meta, {sha:null,lastSync:null,dirty:false});
 let template = ls.get(LS.tpl, null); if(!validTemplate(template)) template=null; // last good template.json, kept for offline use
 let templateError=false;                   // true when the repo copy failed validation on the last sync
-let todayCard=null, tomorrowCard=null, eveningToday=null, todayFromEvening=false, stonesCard=null, block="praktisk";
+let todayCard=null, tomorrowCard=null, eveningToday=null, todayFromEvening=false, block="praktisk";
 let choices = ls.get(LS.choices, {options:{},dirty:false});   // options picked per date: {"YYYY-MM-DD|title":"yes"}; written to choices.json
 let beachCard = null;   // beach.json from the hub, never stored on the device
 let logBook = ls.get(LS.log, {days:{},dirty:false});        // block-by-block log: {"YYYY-MM-DD": {"HH:MM|name": entry}}; written to log.json
@@ -346,20 +388,20 @@ function saveLocal(){ ls.set(LS.items, items); ls.set(LS.meta, meta); }
 // =====================================================================
 // 3. GitHub sync (Contents API). Merge by id, newest `updated` wins.
 // =====================================================================
-const api = () => `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/`;
+const api = repo => `https://api.github.com/repos/${cfg.owner}/${repo||cfg.repo}/contents/`;
 const headers = () => ({ "Authorization":`Bearer ${cfg.token}`, "Accept":"application/vnd.github+json", "X-GitHub-Api-Version":"2022-11-28" });
 const configured = () => !!(cfg.owner && cfg.repo && cfg.token);
 function b64encode(str){ const bytes=new TextEncoder().encode(str); let bin=""; for(let i=0;i<bytes.length;i+=0x8000) bin+=String.fromCharCode(...bytes.subarray(i,i+0x8000)); return btoa(bin); }
 function b64decode(b64){ const bin=atob(b64.replace(/\s/g,"")); const bytes=Uint8Array.from(bin,c=>c.charCodeAt(0)); return new TextDecoder().decode(bytes); }
-async function ghGet(path){
-  const r = await fetch(api()+path+`?ref=${encodeURIComponent(cfg.branch)}&t=${Date.now()}`, { headers: headers(), cache:"no-store" });
+async function ghGet(path, repo){
+  const r = await fetch(api(repo)+path+(repo?`?t=${Date.now()}`:`?ref=${encodeURIComponent(cfg.branch)}&t=${Date.now()}`), { headers: headers(), cache:"no-store" });
   if(r.status===404) return { missing:true };
   if(!r.ok) throw new Error(`GET ${path}: ${r.status}`);
   const j = await r.json(); return { sha:j.sha, text:b64decode(j.content) };
 }
-async function ghPut(path, text, sha, message){
-  const body = { message, content:b64encode(text), branch:cfg.branch }; if(sha) body.sha=sha;
-  const r = await fetch(api()+path, { method:"PUT", headers:{...headers(),"Content-Type":"application/json"}, body:JSON.stringify(body) });
+async function ghPut(path, text, sha, message, repo){
+  const body = { message, content:b64encode(text) }; if(!repo) body.branch=cfg.branch; if(sha) body.sha=sha;
+  const r = await fetch(api(repo)+path, { method:"PUT", headers:{...headers(),"Content-Type":"application/json"}, body:JSON.stringify(body) });
   if(r.status===409 || r.status===422) return { conflict:true };
   if(!r.ok) throw new Error(`PUT ${path}: ${r.status}`);
   const j = await r.json(); return { sha:j.content.sha };
@@ -390,6 +432,7 @@ async function sync(reason){
     try{ await syncChoices(); }catch(e){ console.warn(e); }   // a pick that could not be written stays queued; the inbox sync still counts
     try{ await syncAccepts(); }catch(e){ console.warn(e); }
     try{ await syncLog(); }catch(e){ console.warn(e); }
+    tbSync();
     await loadCards();
     setStatus("synced "+clock(meta.lastSync),"ok");
   }catch(e){
@@ -475,6 +518,137 @@ function logHTML(date, e){
   return `<div class="lg">${all.filter(([st])=>!r.status||r.status===st).map(x=>b(...x)).join("")}`
     + (r.status ? `<input class="ln" type="text" enterkeyhint="done" placeholder="note (optional)" data-lognote="${k}" value="${esc(r.note||"")}">` : "") + `</div>`;
 }
+// =====================================================================
+// Tankebænken, folded in (decided 21 Nov). Its data stays in tankebaenken-data, in the old app's format, so both
+// apps work on the same store while he moves over: state.json (quarry, books, readingLog; merged per id, newest
+// stamp wins, counters take the max) and journal/YYYY-MM.md (appended, never regenerated). New items get their
+// q-/b-/r- id at sync time from the counters, and journal ids (j-NNNN) from the highest one in the file, so the
+// two apps cannot hand out the same id from stale counters. Counting is on (his call, 21 Nov); no reminders.
+// =====================================================================
+let tb = ls.get(LS.tb, { state:null, pend:{ quarry:[], books:[], readingLog:[] }, journal:[], month:null, entries:[], dirty:false, synced:null });
+let tbTab = "journal", tbMinutes = null;
+const tbRepo = () => cfg.tbRepo || "tankebaenken-data";
+const tbSave = () => ls.set(LS.tb, tb);
+const isoNow = () => new Date().toISOString();
+const monthOf = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+const tmpId = k => `tmp-${k}-${uid()}`;
+function tbList(kind){   // what the app shows: the last synced state with local changes on top
+  const base=((tb.state||{})[kind])||[], m=new Map(base.map(x=>[x.id,x]));
+  (tb.pend[kind]||[]).forEach(x=>m.set(x.id,x)); return [...m.values()];
+}
+function tbPut(kind, obj){ const l=tb.pend[kind]; const i=l.findIndex(x=>x.id===obj.id); if(i>=0) l[i]=obj; else l.push(obj); tb.dirty=true; tbSave(); }
+function tbAddIdea(text, source, fromJournal){
+  tbPut("quarry", { id:tmpId("q"), createdAt:isoNow(), updatedAt:isoNow(), text, source:source||"", parentStoneId:null, status:"open", benchedAsStoneId:null, ...(fromJournal?{fromJournal}:{}) });
+}
+function tbIdeaStatus(id, status){ const q=tbList("quarry").find(x=>x.id===id); if(q) tbPut("quarry", { ...q, status, updatedAt:isoNow() }); }
+function tbAddBook(title, author, kind, status, owned){
+  const b={ id:tmpId("b"), title, author, kind:kind==="easy"?"easy":"thinking", status, earnedBy:null, owned:!!owned, addedAt:isoNow(), updatedAt:isoNow() };
+  tbPut("books", b); return b;
+}
+function tbLogReading(bookId, minutes){ bookId=(tb.idmap||{})[bookId]||bookId; tbPut("readingLog", { id:tmpId("r"), date:ymd(now()), bookId, minutes, updatedAt:isoNow() }); }
+function tbMerge(local, remote){   // the old app's mergeLists: per id, the newer stamp wins
+  const stamp=o=>(o&&(o.updatedAt||o.createdAt||o.addedAt||o.date))||"", m=new Map();
+  (remote||[]).forEach(x=>x&&x.id&&m.set(x.id,x));
+  (local||[]).forEach(x=>{ if(!x||!x.id) return; const r=m.get(x.id); if(!r||String(stamp(x))>=String(stamp(r))) m.set(x.id,x); });
+  return [...m.values()].sort((a,b)=>String(stamp(b)).localeCompare(String(stamp(a)))||String(b.id).localeCompare(String(a.id)));
+}
+function journalBlockTb(e){   // the old app's journal format, byte for byte
+  const d=new Date(e.createdAt), z=n=>String(n).padStart(2,"0");
+  return `## ${ymd(d)} ${z(d.getHours())}:${z(d.getMinutes())} · ${e.id}\n\n` + (e.where?`*${e.where}*\n\n`:"") + String(e.text).trim() + "\n";
+}
+function parseJournalTb(md){   // headings "## YYYY-MM-DD HH:MM · j-NNNN", text until the next heading
+  const out=[]; let cur=null;
+  String(md||"").split("\n").forEach(line=>{ const h=line.match(/^##\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})\s+·\s+(j-\d{4})\s*$/);
+    if(h){ if(cur) out.push(cur); cur={ id:h[4], date:h[1], time:`${h[2]}:${h[3]}`, lines:[] }; } else if(cur) cur.lines.push(line); });
+  if(cur) out.push(cur);
+  return out.map(e=>({ id:e.id, date:e.date, time:e.time, text:e.lines.join("\n").replace(/^\s*\*[^*\n]*\*\s*\n/,"").trim() })).filter(e=>e.text);
+}
+let tbBusy=false, tbAgain=false;
+async function tbSync(){
+  if(!configured()) return; if(tbBusy){ tbAgain=true; return; } tbBusy=true;
+  try{
+    // 1. journal: append what is waiting to this month's file, numbering from the highest id in it
+    const month=monthOf(now()), jpath=`journal/${month}.md`;
+    for(let attempt=0; attempt<3; attempt++){
+      const f=await ghGet(jpath, tbRepo()); const text=f.missing?null:f.text;
+      if(text!==null){ tb.entries=parseJournalTb(text); tb.month=month; }
+      const wait=tb.journal.filter(e=>!e.id); if(!wait.length) break;
+      let n=Math.max(0, ...(String(text||"").match(/j-(\d{4})/g)||[]).map(x=>+x.slice(2)), ((tb.state||{}).counters||{}).journal||0);
+      const ready=wait.map(e=>({ ...e, id:`j-${String(++n).padStart(4,"0")}` }));
+      const body=(text===null?`# ${month}\n`:text).replace(/\s*$/,"")+"\n\n"+ready.map(journalBlockTb).join("\n");
+      const put=await ghPut(jpath, body.endsWith("\n")?body:body+"\n", f.missing?null:f.sha, `journal: ${ready.length} ${ready.length===1?"entry":"entries"} (Overblik)`, tbRepo());
+      if(put.conflict) continue;
+      tb.journal=tb.journal.filter(e=>e.id); tb.counters_j=n; tb.entries=parseJournalTb(body); tbSave(); break;
+    }
+    // 2. state.json: merge the waiting items in, giving new ones their ids from the counters
+    for(let attempt=0; attempt<3; attempt++){
+      const f=await ghGet("state.json", tbRepo()); let remote=null; if(!f.missing){ try{ remote=JSON.parse(f.text); }catch(e){} }
+      if(!remote) break;   // never create or overwrite a state.json that cannot be read; the last good copy stays on screen
+      const pending=tb.pend.quarry.length+tb.pend.books.length+tb.pend.readingLog.length;
+      if(!pending && !(tb.counters_j>((remote.counters||{}).journal||0))){ tb.state=remote; tb.dirty=false; break; }
+      const st=JSON.parse(JSON.stringify(remote)); st.counters={ stone:0, quarry:0, book:0, reading:0, journal:0, ...(st.counters||{}) };
+      if(tb.counters_j) st.counters.journal=Math.max(st.counters.journal, tb.counters_j);
+      const map={...(tb.idmap||{})}, pre={ quarry:["q","quarry"], books:["b","book"], readingLog:["r","reading"] };
+      ["books","quarry","readingLog"].forEach(k=>tb.pend[k].forEach(x=>{ if(String(x.id).startsWith("tmp-")){ const [p,c]=pre[k]; st.counters[c]++; map[x.id]=`${p}-${String(st.counters[c]).padStart(4,"0")}`; } }));
+      const fix=x=>({ ...x, id:map[x.id]||x.id, ...(x.bookId?{bookId:map[x.bookId]||x.bookId}:{}) });
+      ["books","quarry","readingLog"].forEach(k=>{ st[k]=tbMerge(tb.pend[k].map(fix), st[k]||[]); });
+      const put=await ghPut("state.json", JSON.stringify(st,null,2), f.sha, "state (Overblik)", tbRepo());
+      if(put.conflict) continue;
+      tb.idmap=Object.fromEntries(Object.entries(map).slice(-200));   // a log made before its book's id came back still finds it
+      tb.state=st; tb.pend={ quarry:[], books:[], readingLog:[] }; tb.dirty=false; break;
+    }
+    tb.synced=isoNow(); tbSave();
+    try{ await writePractice(); }catch(e){ console.warn(e); }
+  }catch(e){ console.warn(e); }
+  finally{ tbBusy=false; render(); if(tbAgain){ tbAgain=false; tbSync(); } }
+}
+async function writePractice(){
+  // practice.json in the hub: journal entries, reading minutes and ideas per day, for the weekly line. Counts only, no text.
+  const days={}, add=(d,k,v)=>{ if(!d) return; days[d]=days[d]||{ journal:0, reading_min:0, reading_sessions:0, ideas:0 }; days[d][k]+=v; };
+  (tb.entries||[]).forEach(e=>add(e.date,"journal",1));
+  tbList("readingLog").forEach(r=>{ add(r.date,"reading_min",+r.minutes||0); add(r.date,"reading_sessions",1); });
+  tbList("quarry").forEach(q=>add(String(q.createdAt||"").slice(0,10),"ideas",1));
+  const r=await ghGet("practice.json"); let old={}; if(!r.missing){ try{ old=JSON.parse(r.text).days||{}; }catch(e){} }
+  const merged={...old, ...days};   // older months stay as they were written; this month and the state's history are recounted
+  if(JSON.stringify(merged)===JSON.stringify(old)) return;
+  await ghPut("practice.json", JSON.stringify({ updated:isoNow(), days:merged }, null, 1)+"\n", r.missing?null:r.sha, "overblik: practice");
+}
+function renderTb(n){
+  const sec=document.getElementById("tb-sec"); if(!sec) return;
+  ["journal","read","ideas"].forEach(t=>{ document.getElementById("tb-"+t).hidden=(t!==tbTab); });
+  document.querySelectorAll(".tb-tabs .chip").forEach(c=>c.setAttribute("aria-pressed",String(c.dataset.tb===tbTab)));
+  const week0=new Date(n); week0.setDate(n.getDate()-((n.getDay()+6)%7)); const from=ymd(week0);
+  const entries=(tb.entries||[]).concat(tb.journal.filter(e=>!e.id).map(e=>({ date:ymd(new Date(e.createdAt)), time:"", text:e.text, waiting:true })));
+  const books=tbList("books"), logs=tbList("readingLog"), ideas=tbList("quarry");
+  const wkJ=entries.filter(e=>e.date>=from).length, wkMin=logs.filter(r=>r.date>=from).reduce((a,r)=>a+(+r.minutes||0),0);
+  document.getElementById("tb-count").textContent = `this week: ${wkJ} journal · ${wkMin} min read`;
+  // journal: the last entries of this month, newest first, each with a way to the ideas
+  const promoted=new Set(ideas.map(q=>q.fromJournal).filter(Boolean));
+  document.getElementById("tb-j-list").innerHTML = entries.slice().sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time)).slice(0,5).map(e=>
+    `<li><small>${esc(e.date)} ${esc(e.time||"")}${e.waiting?" · not synced":""}</small><span>${esc(e.text.length>220?e.text.slice(0,220)+"…":e.text)}</span>`
+    + (e.id && !promoted.has(e.id) ? `<span class="acts"><button type="button" data-tbpromote="${esc(e.id)}">→ idea</button></span>` : "") + `</li>`).join("") || '<li><small>Nothing this month yet.</small></li>';
+  // reading: books to pick, minutes as one tap, the recent sessions
+  const sel=document.getElementById("tb-r-book"), keep=sel.value, readable=books.filter(b=>b.status!=="done");
+  sel.innerHTML='<option value="">which book?</option>'+readable.sort((a,b)=>(a.status==="reading"?0:1)-(b.status==="reading"?0:1)||a.title.localeCompare(b.title)).map(b=>`<option value="${esc(b.id)}">${esc(b.title)}${b.status==="reading"?" (reading)":""}</option>`).join("");
+  if(keep) sel.value=(tb.idmap||{})[keep]||keep;   // a book picked while its id came back from the sync stays picked
+  const title=id=>(books.find(b=>b.id===id)||{}).title||"a book";
+  document.getElementById("tb-r-list").innerHTML = logs.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,4).map(r=>`<li><small>${esc(r.date)}</small><span>${esc(title(r.bookId))}: ${esc(r.minutes)} min</span></li>`).join("");
+  const group=(h,list)=>list.length?`<div class="tb-lib-h">${h} (${list.length})</div><ul class="tb-list">${list.map(b=>`<li><span>${esc(b.title)}${b.author?` <small>${esc(b.author)}</small>`:""}</span><small>${b.kind==="easy"?"fiction / easy":"thinking"}${b.owned?" · owned":""}</small></li>`).join("")}</ul>`:"";
+  document.getElementById("tb-lib").innerHTML = group("Reading now", books.filter(b=>b.status==="reading")) + group("On the shelf", books.filter(b=>b.status==="shelf")) + group("Read", books.filter(b=>b.status==="done"));
+  // ideas: open first; discuss one with Claude in one tap, keep it for later, or mark it worked
+  const order={ open:0, kept:1, worked:2 };
+  document.getElementById("tb-i-list").innerHTML = ideas.filter(q=>q.status!=="benched").sort((a,b)=>(order[a.status]??3)-(order[b.status]??3)||String(b.createdAt).localeCompare(String(a.createdAt))).slice(0,12).map(q=>
+    `<li><span>${esc(q.text)}</span><small>${esc(String(q.createdAt||"").slice(0,10))}${q.source?" · "+esc(q.source):""}${q.status&&q.status!=="open"?" · "+esc(q.status):""}</small>`
+    + `<span class="acts"><a href="${esc(claudeLink(q))}" target="_blank" rel="noopener">Discuss with Claude</a>`
+    + (q.status!=="kept"?`<button type="button" data-tbidea="${esc(q.id)}" data-st="kept">Keep for later</button>`:"")
+    + (q.status!=="worked"?`<button type="button" data-tbidea="${esc(q.id)}" data-st="worked">Worked</button>`:`<button type="button" data-tbidea="${esc(q.id)}" data-st="open">Reopen</button>`)
+    + `</span></li>`).join("") || '<li><small>No ideas yet. Capture one with the Idé chip.</small></li>';
+  document.getElementById("tb-src").textContent = (tb.dirty||tb.journal.some(e=>!e.id)) ? "changes waiting to sync to tankebaenken-data" : tb.synced ? `synced ${clock(tb.synced)} with ${tbRepo()}` : "";
+}
+function claudeLink(q){   // one tap from an idea to a mentoring conversation, the prompt already written
+  const prompt = `Be my mentor on an idea I noted down. Do not do the thinking for me: ask, push back, point me to good reading, and steer me away from weak sources. At the end, tell me in one line whether this is worth keeping for later investigation, and what the next question would be.\n\nThe idea (${String(q.createdAt||"").slice(0,10)}${q.source?", "+q.source:""}):\n${q.text}`;
+  return "https://claude.ai/new?q=" + encodeURIComponent(prompt);
+}
 async function loadCards(){
   await Promise.all([
     // today.json: written by the planner each morning. Used only if it is for today.
@@ -489,7 +663,7 @@ async function loadCards(){
     // beach.json: written by the cphbeach Action. Optional; the Beach card shows only when it exists and reads.
     (async()=>{ try{ const r=await ghGet("beach.json"); beachCard = r.missing? null : JSON.parse(r.text); }catch(e){ beachCard=null; } })(),
     // tankebaenken.json: written by the Tankebænken app. Optional.
-    (async()=>{ try{ const r=await ghGet("tankebaenken.json"); stonesCard = r.missing? null : JSON.parse(r.text); }catch(e){ stonesCard=null; } })(),
+
     // template.json: the template week, edited by hand. A copy that fails validation never replaces the last good one.
     (async()=>{ try{ const r=await ghGet("template.json"); if(r.missing) return; let t=null; try{ t=JSON.parse(r.text); }catch(e){}
       if(validTemplate(t)){ template=t; templateError=false; ls.set(LS.tpl,t); } else templateError=true; }catch(e){ /* unreachable: keep the cached copy */ } })(),
@@ -554,11 +728,7 @@ function render(){
   if(!backCount) bl.innerHTML='<div class="empty">Everything open fits in the next blocks.</div>';
 
   renderBeach(n);
-  const ss=document.getElementById("stones-sec");
-  if(stonesCard && Array.isArray(stonesCard.stones) && stonesCard.stones.length){
-    ss.hidden=false; document.getElementById("st-count").textContent=`top ${Math.min(3,stonesCard.stones.length)} stones`;
-    document.getElementById("stones").innerHTML = stonesCard.stones.slice(0,3).map((st,i)=>`<li class="stone"><span class="n">${i+1}</span><span class="txt">${esc(st.text)}<small>${esc(st.note||"")}</small></span><span class="w">${st.days!=null?st.days+" d":""}</span></li>`).join("");
-  } else ss.hidden=true;
+  renderTb(n);
 
   document.getElementById("f-note").textContent = configured()
     ? `${items.filter(i=>!i.done).length} open · ${cfg.owner}/${cfg.repo}` + (meta.dirty?" · changes waiting to sync":"")
@@ -601,7 +771,8 @@ function timeline(tl, day, date, nowMin){
     if(e.kind!=="work" && !opt) planned+=en-s;
     const btn = (opt||picked) ? `<button class="pick" type="button" data-opt="${esc(key)}" aria-pressed="${picked}">${picked?"Going":"I'm going"}</button>` : "";
     const meta = opt ? (picked ? "picked: the plan follows at the next planner run" : "option · blocks nothing until you pick it") : (e.source||"");
-    const log = (nowMin!=null && !opt && s<=nowMin) ? logHTML(date,e) : "";   // a block can be logged once it has started
+    let log = (nowMin!=null && !opt && s<=nowMin) ? logHTML(date,e) : "";
+    if(nowMin!=null && !opt && /^tankebænken/i.test(e.name)) log = `<div class="lg">${["journal","read","ideas"].map(t=>`<button type="button" data-tbgo="${t}">${t==="journal"?"Journal":t==="read"?"Read":"Work an idea"}</button>`).join("")}</div>` + log;   // a block can be logged once it has started
     li.innerHTML=`<span class="t">${esc(e.start)}<br>${esc(e.end)}</span><span class="bar"></span><div class="body${btn?" split":""}"><div><div class="name">${esc(e.name)}${e.session?` <span class="mono" style="font-weight:400;color:var(--fg-2)">${esc(e.session)}</span>`:""}</div><div class="meta">${esc(meta)}</div>${log}</div>${btn}</div>`;
     tl.appendChild(li);
   });
@@ -673,12 +844,13 @@ function guessBlock(text){
   return score[best]>score.praktisk ? best : "praktisk";
 }
 let chipByHand=false;
-const showBlock = b => { block=b; document.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.block===b))); };
+const showBlock = b => { block=b; document.querySelectorAll(".capture .chip").forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.block===b))); };
 document.getElementById("cap").addEventListener("input",e=>{ if(!chipByHand) showBlock(guessBlock(e.target.value)); });
-document.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>{ chipByHand=true; showBlock(c.dataset.block); document.getElementById("cap").focus(); }));
+document.querySelectorAll(".capture .chip").forEach(c=>c.addEventListener("click",()=>{ chipByHand=true; showBlock(c.dataset.block); document.getElementById("cap").focus(); }));
 document.getElementById("cap-form").addEventListener("submit",e=>{
   e.preventDefault(); const inp=document.getElementById("cap"); const text=inp.value.trim(); if(!text) return;
   const ts=new Date().toISOString();
+  if(block==="idea"){ tbAddIdea(text, "Captured in Overblik"); inp.value=""; chipByHand=false; showBlock("praktisk"); render(); inp.focus(); tbSync(); return; }
   items.push({ id:uid(), text, block, created:ymd(now()), updated:ts, done:null }); meta.dirty=true; saveLocal(); inp.value=""; render();
   chipByHand=false; showBlock("praktisk"); inp.focus();
   sync("add");
@@ -728,12 +900,12 @@ document.querySelector(".wrap").addEventListener("click",e=>{   // tick a packed
 });
 // setup panel
 const setup=document.getElementById("setup");
-function openSetup(){ setup.hidden=false; document.getElementById("s-owner").value=cfg.owner; document.getElementById("s-repo").value=cfg.repo; document.getElementById("s-branch").value=cfg.branch; document.getElementById("s-token").value=cfg.token; document.getElementById("s-msg").textContent=""; refreshPush(); }
+function openSetup(){ setup.hidden=false; document.getElementById("s-owner").value=cfg.owner; document.getElementById("s-repo").value=cfg.repo; document.getElementById("s-branch").value=cfg.branch; document.getElementById("s-token").value=cfg.token; document.getElementById("s-tbrepo").value=cfg.tbRepo||"tankebaenken-data"; document.getElementById("s-msg").textContent=""; refreshPush(); }
 document.getElementById("status").addEventListener("click",openSetup);
 document.getElementById("f-setup").addEventListener("click",openSetup);
 document.getElementById("s-close").addEventListener("click",()=>{ setup.hidden=true; });
 document.getElementById("s-save").addEventListener("click",async()=>{
-  cfg={ owner:document.getElementById("s-owner").value.trim(), repo:document.getElementById("s-repo").value.trim()||"overblik-data", branch:document.getElementById("s-branch").value.trim()||"main", token:document.getElementById("s-token").value.trim() };
+  cfg={ owner:document.getElementById("s-owner").value.trim(), repo:document.getElementById("s-repo").value.trim()||"overblik-data", branch:document.getElementById("s-branch").value.trim()||"main", token:document.getElementById("s-token").value.trim(), tbRepo:document.getElementById("s-tbrepo").value.trim()||"tankebaenken-data" };
   ls.set(LS.cfg,cfg); const msg=document.getElementById("s-msg");
   if(!configured()){ msg.textContent="user, repo and token are all needed"; return; }
   msg.textContent="testing…"; await sync("setup");
@@ -786,6 +958,25 @@ document.getElementById("p-toggle").addEventListener("click",async()=>{
     }
   }catch(e){ console.warn(e); msg.textContent="failed: "+e.message; return; }
   refreshPush();
+});
+document.querySelectorAll(".tb-tabs .chip").forEach(c=>c.addEventListener("click",()=>{ tbTab=c.dataset.tb; render(); }));
+document.getElementById("tb-j-save").addEventListener("click",()=>{
+  const t=document.getElementById("tb-j-text"), w=document.getElementById("tb-j-where"); if(!t.value.trim()) return;
+  tb.journal.push({ createdAt:isoNow(), text:t.value.trim(), where:w.value.trim()||null }); tbSave(); t.value=""; w.value=""; render(); tbSync();
+});
+document.querySelectorAll(".tb-mins .pick").forEach(b=>b.addEventListener("click",()=>{
+  const book=document.getElementById("tb-r-book").value; if(!book){ document.getElementById("tb-r-book").focus(); return; }
+  tbLogReading(book, +b.dataset.min); render(); tbSync();
+}));
+document.getElementById("tb-b-add").addEventListener("click",()=>{
+  const t=document.getElementById("tb-b-title"); if(!t.value.trim()) return;
+  tbAddBook(t.value.trim(), document.getElementById("tb-b-author").value.trim(), document.getElementById("tb-b-kind").value, document.getElementById("tb-b-status").value, document.getElementById("tb-b-owned").checked);
+  t.value=""; document.getElementById("tb-b-author").value=""; render(); tbSync();
+});
+document.querySelector(".wrap").addEventListener("click",ev=>{
+  const pr=ev.target.closest("button[data-tbpromote]"); if(pr){ const e=(tb.entries||[]).find(x=>x.id===pr.dataset.tbpromote); if(e){ tbAddIdea(e.text, "Journal · "+e.date, e.id); render(); tbSync(); } return; }
+  const id=ev.target.closest("button[data-tbidea]"); if(id){ tbIdeaStatus(id.dataset.tbidea, id.dataset.st); render(); tbSync(); return; }
+  const go=ev.target.closest("button[data-tbgo]"); if(go){ tbTab=go.dataset.tbgo; render(); document.getElementById("tb-sec").scrollIntoView({behavior:"smooth"}); }
 });
 window.addEventListener("online",()=>sync("online"));
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden) sync("resume"); });

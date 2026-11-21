@@ -1,0 +1,124 @@
+// Tankebænken folded into Overblik: journal, reading and ideas against a mocked tankebaenken-data repo in the old
+// app's format. Made-up entries. Run: node tests/test_tb.js        (exit code 0 = all checks passed)
+const { chromium } = require('playwright');
+const assert = require('assert');
+const path = require('path');
+const APP = 'file://' + path.resolve(__dirname, '..', 'index.html');
+const CFG = { owner: 'someone', repo: 'overblik-data', branch: 'main', token: 'github_pat_TEST', tbRepo: 'tankebaenken-data' };
+const ALL = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const TEMPLATE = { version: 1, anchor_a_monday: '2026-01-05', events: [
+  { name: 'Tankebænken', kind: 'quiet', source: 'Læsning', days: ALL, start: '20:40', end: '21:30' } ] };
+const STATE = { version: 1, appVersion: '1.1.1', stones: [], quarry: [
+  { id: 'q-0016', createdAt: '2026-01-02T09:00:00.000Z', updatedAt: '2026-01-02T09:00:00.000Z', text: 'An old idea', source: 'At the office', parentStoneId: null, status: 'open', benchedAsStoneId: null } ],
+  books: [ { id: 'b-0006', title: 'Kongens fald', author: 'J. V. Jensen', kind: 'easy', status: 'reading', earnedBy: null, addedAt: '2026-01-01T10:00:00.000Z', updatedAt: '2026-01-01T10:00:00.000Z' } ],
+  readingLog: [ { id: 'r-0001', date: '2026-01-03', bookId: 'b-0006', minutes: 25 } ],
+  counters: { stone: 2, quarry: 16, book: 6, reading: 1, journal: 7 }, settings: { weeklyReadingTarget: 2 }, backup: {} };
+const JOURNAL = '# January 2026\n\n## 2026-01-04 21:10 · j-0007\n\nWritten on the Mac, by hand.\n';
+
+(async () => {
+  const results = []; let failed = 0;
+  const check = async (name, fn) => {
+    try { await fn(); results.push('ok    ' + name); }
+    catch (e) { failed++; results.push('FAIL  ' + name + '\n      ' + String(e.message).split('\n')[0]); }
+  };
+  const repos = { 'overblik-data': { 'template.json': JSON.stringify(TEMPLATE) }, 'tankebaenken-data': { 'state.json': JSON.stringify(STATE), 'journal/2026-01.md': JOURNAL } };
+  let n = 0; const puts = [];
+  const handler = async route => {
+    const req = route.request(); const u = new URL(req.url()); const repo = u.pathname.split('/')[3]; const p = u.pathname.split('/contents/')[1];
+    const store = repos[repo]; const sha = k => 'sha-' + repo + '-' + k + '-' + (store['_v' + k] || 0);
+    if (req.method() === 'GET') {
+      if (store[p] === undefined) return route.fulfill({ status: 404, body: '{}' });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sha: sha(p), content: Buffer.from(store[p]).toString('base64') }) });
+    }
+    const body = JSON.parse(req.postData());
+    if (store[p] !== undefined && body.sha !== sha(p)) return route.fulfill({ status: 409, body: '{}' });
+    store[p] = Buffer.from(body.content, 'base64').toString('utf8'); store['_v' + p] = (store['_v' + p] || 0) + 1; puts.push(repo + ':' + p + ': ' + body.message);
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ content: { sha: sha(p) } }) });
+  };
+  const errs = [];
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 400, height: 1400 }, timezoneId: 'Europe/Copenhagen', locale: 'en-GB' });
+  await ctx.clock.install({ time: new Date('2026-01-06T20:45:00+01:00') });
+  await ctx.route('https://api.github.com/**', handler);
+  await ctx.route('https://fonts.googleapis.com/**', r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+  const page = await ctx.newPage(); page.on('pageerror', e => errs.push(e.message));
+  await page.goto(APP);
+  await page.evaluate(cfg => localStorage.setItem('overblik.cfg', JSON.stringify(cfg)), CFG);
+  const idle = async () => { await page.waitForTimeout(400); await page.waitForFunction(() => !tbBusy && !/syncing/.test(document.getElementById('status').textContent), null, { timeout: 5000 }); };
+  await page.reload(); await idle();
+  const state = () => JSON.parse(repos['tankebaenken-data']['state.json']);
+
+  await check('the evening Tankebænken row offers journal, read or an idea', async () => {
+    const b = await page.$$eval('#tl [data-tbgo]', els => els.map(e => e.textContent));
+    assert.deepStrictEqual(b, ['Journal', 'Read', 'Work an idea']);
+    await page.click('#tl [data-tbgo="read"]');
+    assert.strictEqual(await page.$eval('#tb-read', e => e.hidden), false);
+    await page.click('#tl [data-tbgo="journal"]');
+  });
+  await check('this month\'s journal is read from the file, hand-written entries included', async () => {
+    assert.match(await page.textContent('#tb-j-list'), /Written on the Mac, by hand\./);
+  });
+  await page.fill('#tb-j-text', 'A thought about roles.'); await page.fill('#tb-j-where', 'couch'); await page.click('#tb-j-save'); await idle();
+  await check('a journal entry is appended in the old format, numbered after the highest id in the file', async () => {
+    assert.strictEqual(repos['tankebaenken-data']['journal/2026-01.md'], JOURNAL + '\n## 2026-01-06 20:45 · j-0008\n\n*couch*\n\nA thought about roles.\n');
+    assert.strictEqual(state().counters.journal, 8);
+  });
+  await page.fill('#cap', 'Why do roles feel heavier at work?'); await page.click('.chip.idea'); await page.press('#cap', 'Enter'); await idle();
+  await check('the Idé chip puts an idea in the quarry, not a to-do in the inbox', async () => {
+    const q = state().quarry.find(x => x.text === 'Why do roles feel heavier at work?');
+    assert.ok(q, 'in state.json'); assert.strictEqual(q.id, 'q-0017'); assert.strictEqual(q.status, 'open');
+    assert.ok(state().quarry.find(x => x.id === 'q-0016'), 'the old idea stays');
+    const inbox = repos['overblik-data']['inbox.json'];
+    assert.ok(!inbox || !inbox.includes('heavier'), 'not in the inbox');
+  });
+  await page.click('.tb-tabs [data-tb="read"]');
+  await page.click('.tb-add summary');
+  await page.fill('#tb-b-title', 'Asylums'); await page.fill('#tb-b-author', 'Goffman'); await page.selectOption('#tb-b-status', 'reading'); await page.click('#tb-b-add');
+  await page.selectOption('#tb-r-book', { label: 'Asylums (reading)' }); await page.click('.tb-mins [data-min="25"]'); await idle();
+  await check('a new book and a session on it in one sync: the book gets its id and the log follows it', async () => {
+    const b = state().books.find(x => x.title === 'Asylums');
+    assert.strictEqual(b.id, 'b-0007'); assert.strictEqual(b.owned, true); assert.strictEqual(b.kind, 'thinking');
+    const r = state().readingLog.find(x => x.minutes === 25 && x.date === '2026-01-06');
+    assert.strictEqual(r.bookId, 'b-0007'); assert.strictEqual(r.id, 'r-0002');
+    assert.deepStrictEqual(state().counters, { stone: 2, quarry: 17, book: 7, reading: 2, journal: 8 });
+  });
+  await page.selectOption('#tb-r-book', { label: 'Kongens fald (reading)' }); await page.click('.tb-mins [data-min="45"]'); await idle();
+  await check('fiction is logged too (his call, 21 Nov)', async () => {
+    assert.ok(state().readingLog.find(x => x.bookId === 'b-0006' && x.minutes === 45));
+    assert.match(await page.textContent('#tb-count'), /this week: 1 journal · 70 min read/);
+  });
+  await page.click('.tb-tabs [data-tb="journal"]'); await page.click('[data-tbpromote="j-0008"]'); await idle();
+  await check('a journal entry becomes an idea with one tap, linked to its entry', async () => {
+    const q = state().quarry.find(x => x.fromJournal === 'j-0008');
+    assert.ok(q); assert.strictEqual(q.text, 'A thought about roles.');
+    assert.ok(!(await page.$('[data-tbpromote="j-0008"]')), 'and the button goes');
+  });
+  await page.click('.tb-tabs [data-tb="ideas"]');
+  await check('an idea opens a mentoring conversation with Claude, prompt included', async () => {
+    const href = await page.getAttribute('#tb-i-list li:first-child a', 'href');
+    assert.ok(href.startsWith('https://claude.ai/new?q='));
+    assert.match(decodeURIComponent(href), /Be my mentor/);
+  });
+  await page.click('[data-tbidea="q-0016"][data-st="kept"]'); await idle();
+  await check('keep for later and worked change the idea\'s status in state.json', async () => {
+    assert.strictEqual(state().quarry.find(x => x.id === 'q-0016').status, 'kept');
+  });
+  await check('practice.json in the hub counts the week, no text', async () => {
+    const d = JSON.parse(repos['overblik-data']['practice.json']).days;
+    assert.deepStrictEqual(d['2026-01-06'], { journal: 1, reading_min: 70, reading_sessions: 2, ideas: 2 });
+    assert.ok(!repos['overblik-data']['practice.json'].includes('roles'));
+  });
+  delete repos['tankebaenken-data']['state.json']; const before = puts.length;
+  await page.click('[data-tbidea="q-0017"][data-st="worked"]'); await idle();
+  await check('a state.json that cannot be read is never created or overwritten', async () => {
+    assert.strictEqual(repos['tankebaenken-data']['state.json'], undefined);
+    assert.ok(!puts.slice(before).some(p => p.includes('state.json')));
+    assert.match(await page.textContent('#tb-src'), /waiting to sync/);
+  });
+  await check('no page errors', async () => assert.deepStrictEqual(errs, []));
+  if (process.env.SHOT) { await page.click('.tb-tabs [data-tb="read"]'); await (await page.$('#tb-sec')).screenshot({ path: process.env.SHOT }); }
+  await browser.close();
+  console.log(results.join('\n'));
+  console.log(`\n${results.length - failed} of ${results.length} checks passed`);
+  process.exit(failed ? 1 : 0);
+})().catch(e => { console.error(e); process.exit(2); });
