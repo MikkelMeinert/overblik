@@ -468,6 +468,7 @@ async function sync(reason){
     try{ await syncLog(); }catch(e){ console.warn(e); }
     tbSync();
     await loadCards();
+    logTraining(); if(logBook.dirty){ try{ await syncLog(); }catch(e){ console.warn(e); } }
     setStatus("synced "+clock(meta.lastSync),"ok");
   }catch(e){
     meta.dirty=true; saveLocal();
@@ -622,6 +623,48 @@ function logHTML(date, e){
 let tb = ls.get(LS.tb, { state:null, pend:{ quarry:[], books:[], readingLog:[] }, journal:[], month:null, entries:[], dirty:false, synced:null });
 let tbTab = "journal", tbMinutes = null;
 const tbRepo = () => cfg.tbRepo || "tankebaenken-data";
+// ---- what he logged in the training app (training-data, read only): the session at the time he trained, and sport
+const trRepo = () => cfg.trRepo || "training-data";
+let training = null;   // { date, day: {workout, sport} } for today
+const SESSION_NAMES = { "upper-horiz":"Upper · horizontal", "upper-vert":"Upper · vertical", "lower-strength":"Lower · strength", "lower-power":"Lower · power", "lower-post":"Lower · posterior", "lower-posterior":"Lower · posterior" };
+const SPORT_NAMES = { bvb:"Beach volley", padel:"Padel", squash:"Squash", other:"Sport" }, SPORT_MATCH = { bvb:/beach|volley/i, padel:/padel/i, squash:/squash/i };
+function trainingDay(st, plan, date){
+  // The session's time is its first to its last logged set, to the nearest 5 minutes; sport ends when it was logged.
+  if(!st) return null;
+  const hm5=(ms,up)=>{ const d=new Date(ms); let m=d.getHours()*60+d.getMinutes(); m=Math.min(up?Math.ceil(m/5)*5:Math.floor(m/5)*5, 23*60+59); return `${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`; };
+  const out={ workout:null, sport:[] }, id=(st.sessions||{})[date];
+  if(id){
+    const t=[]; Object.values(st.logs||{}).forEach(list=>(Array.isArray(list)?list:[]).forEach(e=>{ if(e&&e.ts&&ymd(new Date(e.ts))===date) t.push(e.ts); }));
+    const pd=((plan||{}).days||[]).find(d=>d.date===date&&d.session&&/^logged/i.test(d.reason||""));
+    const name=(pd&&pd.session)||SESSION_NAMES[id]||id;
+    if(t.length) out.workout={ name, start:hm5(Math.min(...t)), end:hm5(Math.max(...t),true) };
+  }
+  (st.acts||[]).filter(a=>a.date===date&&a.ts&&a.min).forEach(a=>out.sport.push({ type:a.type, name:SPORT_NAMES[a.type]||String(a.type), start:hm5(a.ts-a.min*60000), end:hm5(a.ts,true) }));
+  return out;
+}
+function withTraining(day, date){
+  // The planned workout moves to when he trained; with none planned the session gets its own row. A planned sport row
+  // takes the logged time; other sport gets a row. These rows carry fromTraining so they are logged done once.
+  const tr=training&&training.date===date?training.day:null; if(!tr) return day;
+  const words=((template&&template.planning&&template.planning.workouts)||["Gym","Træning","Upper","Lower"]).map(w=>w.toLowerCase());
+  const first=e=>String(e.name||"").split(/[\s:·]+/)[0].toLowerCase();
+  const evs=(day.events||[]).slice();
+  if(tr.workout){
+    const w=tr.workout, i=evs.findIndex(e=>(e.kind==="body"||e.kind==="sport")&&words.includes(first(e)));
+    if(i>=0) evs[i]={ ...evs[i], start:w.start, end:w.end, session:w.name, source:`logged in the training app · planned ${evs[i].start}`, fromTraining:true };
+    else evs.push({ name:`Træning ${w.name}`, kind:"body", start:w.start, end:w.end, source:"logged in the training app", fromTraining:true });
+  }
+  tr.sport.forEach(sp=>{
+    const re=SPORT_MATCH[sp.type], i=re?evs.findIndex(e=>!e.fromTraining&&e.kind==="sport"&&re.test(e.name)):-1;
+    if(i>=0) evs[i]={ ...evs[i], start:sp.start, end:sp.end, source:`logged in the training app · planned ${evs[i].start}`, fromTraining:true };
+    else evs.push({ name:sp.name, kind:"sport", start:sp.start, end:sp.end, source:"logged in the training app", fromTraining:true });
+  });
+  return { ...day, events:evs };
+}
+function logTraining(){   // a row from the training app counts as done, unless he logged it himself
+  const date=ymd(now()), d=withTraining(todayCard||templateDay(now())||{events:[]}, date);
+  (d.events||[]).filter(e=>e.fromTraining).forEach(e=>{ const cur=(logBook.days[date]||{})[logKey(e)]; if(!cur) setLog(date,e,{ status:"done", from:"training" }); });   // any entry, a cleared one too, is his
+}
 const tbSave = () => ls.set(LS.tb, tb);
 const isoNow = () => new Date().toISOString();
 const monthOf = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
@@ -803,6 +846,10 @@ async function loadCards(){
       eveningToday = (m && m.date===ymd(now())) ? m : null;   // last evening's plan for today: it holds today's packing list
       todayCard = todayFromEvening ? m : t;
       tomorrowCard = (m && m.date===ymd(tomorrowOf(now()))) ? m : null; })(),
+    // training-data: state.json and plan.json of the training app, read only. Needs read access in the token; without it nothing shows.
+    (async()=>{ try{ const date=ymd(now()), r=await ghGet("state.json", trRepo()); if(r.missing){ training=null; return; }
+      let plan=null; try{ const pr=await ghGet("plan.json", trRepo()); if(!pr.missing) plan=JSON.parse(pr.text); }catch(e){}
+      training={ date, day:trainingDay(JSON.parse(r.text), plan, date) }; }catch(e){ /* no access or offline: keep what we had */ } })(),
     // beach.json: written by the cphbeach Action. Optional; the Beach card shows only when it exists and reads.
     (async()=>{ try{ const r=await ghGet("beach.json"); beachCard = r.missing? null : JSON.parse(r.text); }catch(e){ beachCard=null; } })(),
     // tankebaenken.json: written by the Tankebænken app. Optional.
@@ -822,7 +869,7 @@ let renderHeld=false;   // a note being typed is not wiped by a re-render; the r
 document.addEventListener("focusout",ev=>{ if(ev.target.matches&&ev.target.matches("input.ln, #e-text, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")&&renderHeld){ renderHeld=false; setTimeout(render,0); } });
 function render(){
   const a=document.activeElement; if(a&&a.matches&&a.matches("input.ln, #e-text, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")){ renderHeld=true; return; }
-  const n=now(); const day = todayCard || templateDay(n) || { week:null, events:[], info:[] };
+  const n=now(); const day = withTraining(todayCard || templateDay(n) || { week:null, events:[], info:[] }, ymd(n));
   document.getElementById("h-date").textContent = n.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
   const wk = day.week || weekLetter(n), wkNote = wk && template && template.week_notes && template.week_notes[wk];
   document.getElementById("h-sub").textContent = `Week ${isoWeek(n)}` + (wk ? ` · ${wk} week` : "") + (wkNote ? ` · ${wkNote}` : "");
@@ -1041,7 +1088,7 @@ document.querySelector(".wrap").addEventListener("click",e=>{
   ((d&&d.events)||[]).filter(x=>x.kind==="block"&&x.block===it.block&&toMin(x.start)<=nm).forEach(x=>logAgenda(ymd(now()),x));
   render(); sync(it.done?"done":"undo");
 });
-const rowOf = k => { const date=k.slice(0,10), key=k.slice(11), d=todayCard||templateDay(now())||{events:[]}; return { date, e:(d.events||[]).find(x=>logKey(x)===key) }; };
+const rowOf = k => { const date=k.slice(0,10), key=k.slice(11), d=withTraining(todayCard||templateDay(now())||{events:[]}, date); return { date, e:(d.events||[]).find(x=>logKey(x)===key) }; };
 document.querySelector(".wrap").addEventListener("click",ev=>{   // log a block: Done, Partly or Skipped; the same tap again clears it
   const btn=ev.target.closest("button[data-log]"); if(!btn) return;
   const { date, e }=rowOf(btn.dataset.log); if(!e) return;

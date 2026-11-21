@@ -27,7 +27,7 @@ const JOURNAL = '# January 2026\n\n## 2026-01-04 21:10 · j-0007\n\nWritten on t
   let n = 0; const puts = [];
   const handler = async route => {
     const req = route.request(); const u = new URL(req.url()); const repo = u.pathname.split('/')[3]; const p = u.pathname.split('/contents/')[1];
-    const store = repos[repo]; const sha = k => 'sha-' + repo + '-' + k + '-' + (store['_v' + k] || 0);
+    const store = repos[repo] || {}; const sha = k => 'sha-' + repo + '-' + k + '-' + (store['_v' + k] || 0);
     if (req.method() === 'GET') {
       if (store[p] === undefined) return route.fulfill({ status: 404, body: '{}' });
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sha: sha(p), content: Buffer.from(store[p]).toString('base64') }) });
