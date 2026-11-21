@@ -66,11 +66,11 @@ header .sub { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
 .sec .head { display: flex; justify-content: space-between; align-items: baseline; }
 .sec .count { font-size: 12px; color: var(--fg-3); }
 .tl { list-style: none; margin: 0; padding: 0; display: grid; }
-.tl li { display: grid; grid-template-columns: 52px 3px 1fr; column-gap: 12px; min-height: 34px; }
+.tl > li { display: grid; grid-template-columns: 52px 3px 1fr; column-gap: 12px; min-height: 34px; }
 .tl .t { font-family: var(--font-mono); font-size: 12.5px; color: var(--fg-2); font-variant-numeric: tabular-nums; padding-top: 7px; }
 .tl .bar { background: var(--c, var(--work)); border-radius: 2px; margin: 2px 0; }
 .tl .body { padding: 6px 0 8px; border-bottom: 1px solid var(--line); min-width: 0; }
-.tl li:last-child .body { border-bottom: 0; }
+.tl > li:last-child > .body { border-bottom: 0; }
 .tl .name { font-weight: 500; }
 .tl .meta { font-size: 12.5px; color: var(--fg-2); }
 .tl .work .name { color: var(--fg-2); font-weight: 400; }
@@ -83,6 +83,13 @@ header .sub { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
 .tl .body.split { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .pick { font-size: 12.5px; font-weight: 500; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2); white-space: nowrap; min-height: 32px; }
 .pick[aria-pressed="true"] { border-color: var(--body); color: var(--fg); background: color-mix(in srgb, var(--body) 14%, transparent); }
+.lg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+.lg button { font-size: 12px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2); min-height: 30px; }
+.lg button[aria-pressed="true"] { color: var(--fg); border-color: var(--c, var(--ok)); background: color-mix(in srgb, var(--c, var(--ok)) 16%, transparent); }
+.lg .ln { flex: 1 1 140px; min-width: 120px; font-size: 12.5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--fg); }
+.lg .st { font-size: 12px; color: var(--fg-2); }
+.tl .items { list-style: none; margin: 6px 0 0; padding: 0; }
+.tl .items .item { padding: 6px 0; }
 .notes { list-style: none; margin: 0; padding: 0 0 0 67px; display: grid; gap: 3px; font-size: 12.5px; color: var(--fg-2); }
 .notes li b { font-weight: 500; color: var(--fg); }
 .notes .conf { color: var(--bad); }
@@ -304,7 +311,7 @@ function nextBlock(block, from, card, later){
 // =====================================================================
 // 2. State: items (inbox.json), cards, settings
 // =====================================================================
-const LS = { items:"overblik.items", cfg:"overblik.cfg", meta:"overblik.meta", tpl:"overblik.tpl", choices:"overblik.choices", accepts:"overblik.accepts", pack:"overblik.pack", device:"overblik.device" };
+const LS = { items:"overblik.items", cfg:"overblik.cfg", meta:"overblik.meta", tpl:"overblik.tpl", choices:"overblik.choices", accepts:"overblik.accepts", pack:"overblik.pack", device:"overblik.device", log:"overblik.log" };
 const ls = { get(k,f){ try{ const v=localStorage.getItem(k); return v==null?f:JSON.parse(v);}catch(e){return f;} }, set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
 let items = ls.get(LS.items, []);          // [{id,text,block,created,updated,done}]
 let cfg   = ls.get(LS.cfg, {owner:"",repo:"overblik-data",branch:"main",token:""});
@@ -313,6 +320,7 @@ let template = ls.get(LS.tpl, null); if(!validTemplate(template)) template=null;
 let templateError=false;                   // true when the repo copy failed validation on the last sync
 let todayCard=null, tomorrowCard=null, eveningToday=null, todayFromEvening=false, stonesCard=null, block="praktisk";
 let choices = ls.get(LS.choices, {options:{},dirty:false});   // options picked per date: {"YYYY-MM-DD|title":"yes"}; written to choices.json
+let logBook = ls.get(LS.log, {days:{},dirty:false});        // block-by-block log: {"YYYY-MM-DD": {"HH:MM|name": entry}}; written to log.json
 let accepts = ls.get(LS.accepts, {items:[],dirty:false});      // proposals accepted with a tap; written to accepts.json, applied by the Mac job
 let packTicks = ls.get(LS.pack, {});                           // {"YYYY-MM-DD": {"for|item": true}}: this device only, never written to the repo
 const tomorrowOf = d => { const x=new Date(d); x.setDate(x.getDate()+1); return x; };
@@ -368,6 +376,7 @@ async function sync(reason){
     }
     try{ await syncChoices(); }catch(e){ console.warn(e); }   // a pick that could not be written stays queued; the inbox sync still counts
     try{ await syncAccepts(); }catch(e){ console.warn(e); }
+    try{ await syncLog(); }catch(e){ console.warn(e); }
     await loadCards();
     setStatus("synced "+clock(meta.lastSync),"ok");
   }catch(e){
@@ -402,6 +411,57 @@ async function syncAccepts(){
   }
   throw new Error("accepts.json: could not write");
 }
+function mergeLog(local, remote){   // per day and row, the newest `at` wins; a cleared row is kept as {cleared:true} so the clear travels too
+  const out={...remote};
+  Object.entries(local||{}).forEach(([d,rows])=>{ out[d]={...(out[d]||{})}; Object.entries(rows).forEach(([k,v])=>{ const r=out[d][k]; if(!r||(v.at||"")>(r.at||"")) out[d][k]=v; }); });
+  return out;
+}
+async function syncLog(){
+  // log.json: this app is its only writer (every device). Merged per row, so two devices never lose each other's taps.
+  const remote = await ghGet("log.json"); let rDays={}; if(!remote.missing){ try{ rDays=JSON.parse(remote.text).days||{}; }catch(e){} }
+  if(!logBook.dirty){ logBook={days:mergeLog(logBook.days,rDays),dirty:false}; ls.set(LS.log,logBook); return; }
+  for(let attempt=0, sha=remote.missing?null:remote.sha, base=rDays; attempt<3; attempt++){
+    const days=mergeLog(logBook.days,base);
+    const put = await ghPut("log.json", JSON.stringify({version:1,updated:new Date().toISOString(),days},null,1)+"\n", sha, "overblik: log");
+    if(!put.conflict){ logBook={days,dirty:false}; ls.set(LS.log,logBook); return; }
+    const again=await ghGet("log.json"); sha=again.missing?null:again.sha; base={}; if(!again.missing){ try{ base=JSON.parse(again.text).days||{}; }catch(e){} }
+  }
+  throw new Error("log.json: could not write");
+}
+const logKey = e => e.start+"|"+e.name;
+function setLog(date, e, patch){
+  const d=logBook.days[date]=logBook.days[date]||{}, cur=d[logKey(e)]||{};
+  d[logKey(e)]={ ...cur, name:e.name, start:e.start, end:e.end, kind:e.kind, ...patch, at:new Date().toISOString() };
+  logBook.dirty=true; ls.set(LS.log,logBook);
+}
+function agendaItems(e, date){
+  // what this agenda block holds today: the items done today in its block, then the open ones that fit, oldest first
+  const done=items.filter(i=>i.block===e.block&&i.done&&i.done.slice(0,10)===date);
+  const cap=toMin(e.end)-toMin(e.start); let used=done.reduce((a,i)=>a+minutesOf(i.text),0); const fits=[];   // done items keep their minutes
+  items.filter(i=>i.block===e.block&&!i.done).sort((x,y)=>x.created.localeCompare(y.created)||x.id.localeCompare(y.id))
+    .forEach(it=>{ const m=minutesOf(it.text); if(used+m<=cap){ used+=m; fits.push(it); } });
+  return done.concat(fits);
+}
+function logAgenda(date, e){   // an agenda block's entry follows its items: done, partly, or nothing yet
+  const list=agendaItems(e,date), done=list.filter(i=>i.done).length, cur=((logBook.days[date]||{})[logKey(e)])||{};
+  if(cur.status==="skipped" && !done) return;
+  const status = !done ? null : done===list.length ? "done" : "partly";
+  if(cur.status===status && cur.items && cur.items.done===done && cur.items.planned===list.length) return;
+  setLog(date, e, { status, items:{ done, planned:list.length } });
+}
+function logHTML(date, e){
+  const r=((logBook.days[date]||{})[logKey(e)])||{}, k=esc(date+"/"+logKey(e));
+  if(e.kind==="block" && BLOCKS.includes(e.block)){
+    const list=agendaItems(e,date), done=list.filter(i=>i.done).length;
+    const rows=list.map(it=>`<li class="item${it.done?" done":""}"><button class="box" aria-label="Mark done" data-id="${esc(it.id)}"><svg viewBox="0 0 12 12" fill="none" stroke-width="2"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg></button><button class="txt" data-id="${esc(it.id)}">${esc(it.text.replace(/\s*\(\d+\s*m\)/i,""))}</button><span class="min">${minutesOf(it.text)} m</span></li>`).join("");
+    return `<ul class="items">${rows}</ul><div class="lg"><span class="st">${list.length?`${done} of ${list.length} done; the rest moves on`:"nothing planned"}</span>`
+      + `<button type="button" data-log="${k}" data-st="skipped" aria-pressed="${r.status==="skipped"}" style="--c:var(--bad)">Skipped</button></div>`;
+  }
+  const b=(st,label,c)=>`<button type="button" data-log="${k}" data-st="${st}" aria-pressed="${r.status===st}" style="--c:var(--${c})">${label}</button>`;
+  const all=[["done","Done","ok"],["partly","Partly","warn"],["skipped","Skipped","bad"]];   // once logged only the choice shows; a tap on it reopens the three
+  return `<div class="lg">${all.filter(([st])=>!r.status||r.status===st).map(x=>b(...x)).join("")}`
+    + (r.status ? `<input class="ln" type="text" enterkeyhint="done" placeholder="note (optional)" data-lognote="${k}" value="${esc(r.note||"")}">` : "") + `</div>`;
+}
 async function loadCards(){
   await Promise.all([
     // today.json: written by the planner each morning. Used only if it is for today.
@@ -426,7 +486,10 @@ function setStatus(text, cls){ const s=document.getElementById("status"); s.text
 // =====================================================================
 // 4. Render
 // =====================================================================
+let renderHeld=false;   // a note being typed is not wiped by a re-render; the render waits until he leaves the field
+document.addEventListener("focusout",ev=>{ if(ev.target.matches&&ev.target.matches("input.ln")&&renderHeld){ renderHeld=false; setTimeout(render,0); } });
 function render(){
+  const a=document.activeElement; if(a&&a.matches&&a.matches("input.ln")){ renderHeld=true; return; }
   const n=now(); const day = todayCard || templateDay(n) || { week:null, events:[], info:[] };
   document.getElementById("h-date").textContent = n.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
   const wk = day.week || weekLetter(n), wkNote = wk && template && template.week_notes && template.week_notes[wk];
@@ -497,7 +560,8 @@ function timeline(tl, day, date, nowMin){
     if(e.kind!=="work" && !opt) planned+=en-s;
     const btn = (opt||picked) ? `<button class="pick" type="button" data-opt="${esc(key)}" aria-pressed="${picked}">${picked?"Going":"I'm going"}</button>` : "";
     const meta = opt ? (picked ? "picked: the plan follows at the next planner run" : "option · blocks nothing until you pick it") : (e.source||"");
-    li.innerHTML=`<span class="t">${esc(e.start)}<br>${esc(e.end)}</span><span class="bar"></span><div class="body${btn?" split":""}"><div><div class="name">${esc(e.name)}${e.session?` <span class="mono" style="font-weight:400;color:var(--fg-2)">${esc(e.session)}</span>`:""}</div><div class="meta">${esc(meta)}</div></div>${btn}</div>`;
+    const log = (nowMin!=null && !opt && s<=nowMin) ? logHTML(date,e) : "";   // a block can be logged once it has started
+    li.innerHTML=`<span class="t">${esc(e.start)}<br>${esc(e.end)}</span><span class="bar"></span><div class="body${btn?" split":""}"><div><div class="name">${esc(e.name)}${e.session?` <span class="mono" style="font-weight:400;color:var(--fg-2)">${esc(e.session)}</span>`:""}</div><div class="meta">${esc(meta)}</div>${log}</div>${btn}</div>`;
     tl.appendChild(li);
   });
   return planned;
@@ -562,7 +626,24 @@ document.getElementById("cap-form").addEventListener("submit",e=>{
 document.querySelector(".wrap").addEventListener("click",e=>{
   const btn=e.target.closest("button[data-id]"); if(!btn) return;
   const it=items.find(i=>i.id===btn.dataset.id); if(!it) return;
-  const ts=new Date().toISOString(); it.done = it.done ? null : ts; it.updated=ts; meta.dirty=true; saveLocal(); render(); sync(it.done?"done":"undo");
+  const ts=new Date().toISOString(); it.done = it.done ? null : ts; it.updated=ts; meta.dirty=true; saveLocal();
+  const d=todayCard||templateDay(now()), nm=now().getHours()*60+now().getMinutes();   // an agenda block that has started logs its items
+  ((d&&d.events)||[]).filter(x=>x.kind==="block"&&x.block===it.block&&toMin(x.start)<=nm).forEach(x=>logAgenda(ymd(now()),x));
+  render(); sync(it.done?"done":"undo");
+});
+const rowOf = k => { const date=k.slice(0,10), key=k.slice(11), d=todayCard||templateDay(now())||{events:[]}; return { date, e:(d.events||[]).find(x=>logKey(x)===key) }; };
+document.querySelector(".wrap").addEventListener("click",ev=>{   // log a block: Done, Partly or Skipped; the same tap again clears it
+  const btn=ev.target.closest("button[data-log]"); if(!btn) return;
+  const { date, e }=rowOf(btn.dataset.log); if(!e) return;
+  const cur=((logBook.days[date]||{})[logKey(e)])||{}, st=btn.dataset.st;
+  if(cur.status===st){ setLog(date, e, { status:null }); if(e.kind==="block") logAgenda(date,e); }
+  else setLog(date, e, { status:st });
+  render(); sync("log");
+});
+document.querySelector(".wrap").addEventListener("change",ev=>{   // the optional note, saved when he leaves the field
+  const inp=ev.target.closest("input[data-lognote]"); if(!inp) return;
+  const { date, e }=rowOf(inp.dataset.lognote); if(!e) return;
+  setLog(date, e, { note: inp.value.trim()||null }); sync("log");
 });
 document.querySelector(".wrap").addEventListener("click",e=>{   // pick or drop an option for its date
   const btn=e.target.closest("button[data-opt]"); if(!btn) return;
