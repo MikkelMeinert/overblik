@@ -14,6 +14,7 @@ const APP = 'file://' + path.resolve(__dirname, '..', 'index.html');
   const errs = [];
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 400, height: 1600 }, timezoneId: 'Europe/Copenhagen', locale: 'en-GB' });
+  await require('./_all_pages')(ctx);
   await ctx.clock.install({ time: new Date('2026-01-10T11:00:00+01:00') });   // a Saturday
   await ctx.route('https://fonts.googleapis.com/**', r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
   const page = await ctx.newPage(); page.on('pageerror', e => errs.push(e.message));

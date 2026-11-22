@@ -40,6 +40,7 @@ const JOURNAL = '# January 2026\n\n## 2026-01-04 21:10 · j-0007\n\nWritten on t
   const errs = [];
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 400, height: 1400 }, timezoneId: 'Europe/Copenhagen', locale: 'en-GB' });
+  await require('./_all_pages')(ctx);
   await ctx.clock.install({ time: new Date('2026-01-06T20:45:00+01:00') });
   await ctx.route('https://api.github.com/**', handler);
   await ctx.route('https://fonts.googleapis.com/**', r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
@@ -107,12 +108,12 @@ const JOURNAL = '# January 2026\n\n## 2026-01-04 21:10 · j-0007\n\nWritten on t
   });
   await check('practice.json in the hub counts the week, no text', async () => {
     const d = JSON.parse(repos['overblik-data']['practice.json']).days;
-    assert.deepStrictEqual(d['2026-01-06'], { journal: 1, reading_min: 70, reading_sessions: 2, ideas: 2 });
+    assert.deepStrictEqual(d['2026-01-06'], { journal: 1, reading_min: 70, reading_sessions: 2, ideas: 2, news_min: 0 });
     assert.ok(!repos['overblik-data']['practice.json'].includes('roles'));
   });
   await check('a day in an earlier month keeps its journal count when this month is recounted', async () => {
     const d = JSON.parse(repos['overblik-data']['practice.json']).days;
-    assert.deepStrictEqual(d['2025-12-31'], { journal: 2, reading_min: 20, reading_sessions: 1, ideas: 0 });
+    assert.deepStrictEqual(d['2025-12-31'], { journal: 2, reading_min: 20, reading_sessions: 1, ideas: 0, news_min: 0 });
     assert.strictEqual(d['2026-01-04'].journal, 1);
   });
   const GR = 'Book Id,Title,Author,Author l-f,Additional Authors,ISBN,ISBN13,My Rating,Bookshelves,Exclusive Shelf\n'

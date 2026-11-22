@@ -59,6 +59,7 @@ const NOW = '2026-01-06T12:00:00+01:00'; // a Tuesday in an A week, Europe/Copen
   const browser = await chromium.launch();
   const device = async (label) => {
     const ctx = await browser.newContext({ viewport: { width: 400, height: 900 }, timezoneId: 'Europe/Copenhagen', locale: 'en-GB' });
+    await require('./_all_pages')(ctx);
     await ctx.clock.install({ time: new Date(NOW) });
     await ctx.route('https://api.github.com/**', handler);
     await ctx.route('https://fonts.googleapis.com/**', r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
@@ -179,7 +180,7 @@ const NOW = '2026-01-06T12:00:00+01:00'; // a Tuesday in an A week, Europe/Copen
   await p1.reload(); await synced(p1);
   await check('Today shows the planner\'s conflicts, adjustments and options', async () => {
     const notes = await p1.$$eval('#t-notes li', els => els.map(e => e.textContent));
-    assert.deepStrictEqual(notes, ['Conflict Praktisk 13:00 to 14:00 overlaps Lunch out (12:30 to 13:30)', 'Adjusted Desk ends 15:00 instead of 17:00: Dentist']);
+    assert.deepStrictEqual(notes, ['Conflict Praktisk 13:00 clashes with Lunch out', 'Adjusted Desk ends 15:00 instead of 17:00: Dentist']);
     assert.deepStrictEqual(await names(p1), ['Praktisk', 'Late swim']);
     assert.strictEqual(await p1.getAttribute('#tl li:nth-child(2)', 'class'), 'opt');
     assert.strictEqual(await p1.textContent('#t-sum'), '1 h in blocks', 'an option is not counted as planned time');
@@ -194,10 +195,10 @@ const NOW = '2026-01-06T12:00:00+01:00'; // a Tuesday in an A week, Europe/Copen
     assert.deepStrictEqual(await p1.$$eval('#tm-pack .tick', els => els.map(e => e.textContent.trim())), ['shoes', 'towel', 'keys']);
     assert.deepStrictEqual(await p1.$$eval('#tm-pack .pk-h', els => els.map(e => e.textContent)), ['Gym 07:00', 'Every day']);
     assert.deepStrictEqual(await p1.$$eval('#tm-props .tag', els => els.map(e => e.textContent)), ['Moved', 'Yours to move', 'No room', 'Yours to choose']);
-    assert.deepStrictEqual(await p1.$$eval('#tm-props .prop.moved .slot', els => els.map(e => e.textContent + (e.classList.contains('first') ? '*' : ''))), ['Tomorrow 18:30 to 19:30*', 'Thu 16:30 to 17:30']);
-    assert.match(await p1.textContent('#tm-props .prop.move'), /Call home.*18:00 to 18:30.*overlaps Cook.*Tomorrow 16:30 to 17:00.*Tap a slot/s);
+    assert.deepStrictEqual(await p1.$$eval('#tm-props .prop.moved .slot', els => els.map(e => e.textContent + (e.classList.contains('first') ? '*' : ''))), ['Tomorrow 18:30 to 19:30*'], 'a moved card shows where it went, nothing more');
+    assert.match(await p1.textContent('#tm-props .prop.move'), /Call home.*18:00.*clashes with Cook.*Tomorrow 16:30 to 17:00suggested/s);
     assert.strictEqual(await p1.$$eval('#tm-props .prop.moved button.slot', els => els.length), 0, 'what the planner moved itself is not offered as a tap');
-    assert.match(await p1.getAttribute('#tm-props .prop.move a', 'href'), /^calshow:\d+$/);
+    assert.match(await p1.getAttribute('#tm-props .acc-all a', 'href'), /^calshow:\d+$/);
     assert.strictEqual(await p1.textContent('#tm-src'), 'planned 18:30 · 1 calendar change for the Mac to write');
     assert.match(await p1.textContent('#fyi') + await p1.textContent('#tm-fyi'), /A birthday/);
   });
@@ -208,7 +209,7 @@ const NOW = '2026-01-06T12:00:00+01:00'; // a Tuesday in an A week, Europe/Copen
     assert.deepStrictEqual(acc, [{ id: '2026-01-07@x|Call home|18:00', plan_id: '2026-01-07@x', calendar: 'Hjem', uid: 'u9', title: 'Call home', date: '2026-01-07',
       from: { start: '18:00', end: '18:30' }, to: { date: '2026-01-08', start: '18:00', end: '18:30' } }]);
     assert.deepStrictEqual(await p1.$$eval('#tm-props .prop.move button.slot', els => els.map(e => e.getAttribute('aria-pressed'))), ['false', 'true']);
-    assert.match(await p1.textContent('#tm-props .prop.move .p-a'), /Accepted Thu 18:00 to 18:30/);
+    assert.match(await p1.textContent('#tm-props .prop.move .p-a'), /^Accepted\./);
     await p1.reload(); await synced(p1);
     assert.match(await p1.textContent('#tm-props .prop.move .p-a'), /Accepted/, 'the accept survives a reload');
     await p1.click('#tm-props .prop.move button.slot >> nth=0'); await settled(p1);

@@ -197,6 +197,30 @@ button.slot[aria-pressed="true"] { background: color-mix(in srgb, var(--ok) 22%,
 footer { font-size: 12px; color: var(--fg-3); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 footer button { text-decoration: underline; text-underline-offset: 2px; }
 @media (prefers-reduced-motion: no-preference) { .item .box, .chip { transition: background .15s, border-color .15s; } }
+#ev-list:empty, .evrow:has(select[hidden]):has(#ev-prev:empty) { display: none; }
+/* pages behind a tab bar (since 22 Nov): one page at a time, the capture box above them on every page */
+.tabs { position: sticky; top: 0; z-index: 5; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; background: var(--bg); padding: 6px 0; margin: -6px 0; border-bottom: 1px solid var(--line); }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs { -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+.tabs.at-end { -webkit-mask-image: none; mask-image: none; }
+.tabs button { flex: 0 0 auto; font: 500 13.5px/1 var(--font-body); color: var(--fg-2); padding: 9px 8px 8px; border-radius: 8px 8px 0 0; border-bottom: 2px solid transparent; display: inline-flex; align-items: center; gap: 5px; }
+.tabs button[aria-current="page"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tabs button[hidden] { display: none; }
+.tabs .badge { font: 600 10.5px/1 var(--font-mono); color: var(--accent-fg); background: var(--warn); border-radius: 999px; padding: 2px 5px; }
+.tabs .badge:empty { display: none; }
+.page { display: grid; gap: 22px; }
+.page[hidden] { display: none; }
+.acc-all .btn { border: 1px solid transparent; border-radius: 8px; padding: 8px 12px; font-weight: 600; background: var(--accent); color: var(--accent-fg); }
+.acc-all { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; color: var(--fg-2); }
+.acc-all a { color: var(--accent); text-underline-offset: 2px; }
+.slot .sug { font: 500 9.5px/1 var(--font-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--ok); margin-left: 5px; }
+.wk { width: 100%; border-collapse: collapse; font: 12.5px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; }
+.wk th, .wk td { padding: 5px 4px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.wk th:first-child, .wk td:first-child { text-align: left; font-family: var(--font-body); }
+.wk thead th { font-weight: 500; color: var(--fg-3); font-size: 11px; }
+.wk .avg { color: var(--fg); font-weight: 600; }
+.wk .x { color: var(--fg-3); }
+.wk tfoot td { font-weight: 600; border-bottom: 0; }
 </style>
 </head>
 <body>
@@ -248,6 +272,16 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
     <ul id="ev-list" aria-label="Events sent to the calendar"></ul>
   </section>
 
+  <nav class="tabs" id="tabs" aria-label="Pages">
+    <button type="button" data-tab="today">Today</button>
+    <button type="button" data-tab="tomorrow">Tomorrow<span class="badge" id="tab-tm-n"></span></button>
+    <button type="button" data-tab="todos">To-dos<span class="badge" id="tab-td-n"></span></button>
+    <button type="button" data-tab="tb">Tankebænken</button>
+    <button type="button" data-tab="week">Week</button>
+    <button type="button" data-tab="beach">Beach</button>
+  </nav>
+
+  <div class="page" data-page="today">
   <section class="sec" aria-label="Today">
     <div class="head"><h2>Today</h2><span class="count mono" id="t-sum"></span></div>
     <ul class="tl" id="tl"></ul>
@@ -257,6 +291,9 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
     <div class="src" id="t-src"></div>
   </section>
 
+  </div>
+
+  <div class="page" data-page="tomorrow" hidden>
   <section class="sec" id="tm-sec" hidden aria-label="Tomorrow">
     <div class="head"><h2>Tomorrow</h2><span class="count mono" id="tm-sum"></span></div>
     <ul class="tl" id="tm-tl"></ul>
@@ -267,17 +304,36 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
     <div class="src" id="tm-src"></div>
   </section>
 
+  </div>
+
+  <div class="page" data-page="beach" hidden>
   <section class="sec" id="bc-sec" hidden aria-label="Beach">
     <div class="head"><h2>Beach</h2><span class="count mono" id="bc-count"></span></div>
     <div id="bc"></div>
     <div class="src" id="bc-src"></div>
   </section>
 
+  </div>
+
+  <div class="page" data-page="todos" hidden>
   <section class="sec" aria-label="Next up">
     <div class="head"><h2>Next up</h2><span class="count mono" id="i-count"></span></div>
     <div id="groups"></div>
   </section>
 
+  <section class="sec backlog" aria-label="Backlog">
+    <div class="head"><h2><button class="fold" id="b-toggle" aria-expanded="false" aria-controls="backlog">Backlog</button></h2><span class="count mono" id="b-count"></span></div>
+    <div id="backlog"></div>
+  </section>
+
+  <section class="sec backlog" aria-label="App wishes">
+    <div class="head"><h2><button class="fold" id="a-toggle" aria-expanded="false" aria-controls="apps">App wishes</button></h2><span class="count mono" id="a-count"></span></div>
+    <div id="apps" hidden></div>
+  </section>
+
+  </div>
+
+  <div class="page" data-page="tb" hidden>
   <section class="sec" id="tb-sec" aria-label="Tankebænken">
     <div class="head"><h2>Tankebænken</h2><span class="count mono" id="tb-count"></span></div>
     <div class="chips tb-tabs" role="group" aria-label="Tankebænken">
@@ -292,7 +348,7 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
     </div>
     <div id="tb-read" class="tb-pane" hidden>
       <div class="tb-row"><select id="tb-r-book"></select></div>
-      <div class="tb-row tb-mins"><button class="pick" type="button" data-min="15">15 m</button><button class="pick" type="button" data-min="25">25 m</button><button class="pick" type="button" data-min="45">45 m</button><button class="pick" type="button" data-min="60">60 m</button></div>
+      <div class="tb-row tb-mins"><button class="pick" type="button" data-min="10">10 m</button><button class="pick" type="button" data-min="15">15 m</button><button class="pick" type="button" data-min="25">25 m</button><button class="pick" type="button" data-min="45">45 m</button><button class="pick" type="button" data-min="60">60 m</button></div>
       <ul class="tb-list" id="tb-r-list"></ul>
       <details class="tb-add"><summary>Add a book to the library</summary>
         <div class="tb-row"><input id="tb-b-title" type="text" placeholder="title"><input id="tb-b-author" type="text" placeholder="author"></div>
@@ -314,16 +370,16 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
     </div>
     <div class="src" id="tb-src"></div>
   </section>
+  </div>
 
-  <section class="sec backlog" aria-label="Backlog">
-    <div class="head"><h2><button class="fold" id="b-toggle" aria-expanded="false" aria-controls="backlog">Backlog</button></h2><span class="count mono" id="b-count"></span></div>
-    <div id="backlog"></div>
+  <div class="page" data-page="week" hidden>
+  <section class="sec" id="wk-sec" aria-label="Week">
+    <div class="head"><h2>Hours per area</h2><span class="count mono" id="wk-count"></span></div>
+    <div id="wk"></div>
+    <div class="src" id="wk-src"></div>
   </section>
+  </div>
 
-  <section class="sec backlog" aria-label="App wishes">
-    <div class="head"><h2><button class="fold" id="a-toggle" aria-expanded="false" aria-controls="apps">App wishes</button></h2><span class="count mono" id="a-count"></span></div>
-    <div id="apps" hidden></div>
-  </section>
 
   <footer>
     <span id="f-note"></span>
@@ -695,6 +751,10 @@ function tbAddBook(title, author, kind, status, owned){
   const b={ id:tmpId("b"), title, author, kind:kind==="easy"?"easy":"thinking", status, earnedBy:null, owned:!!owned, addedAt:isoNow(), updatedAt:isoNow() };
   tbPut("books", b); return b;
 }
+// Newspaper reading (wish of 21 Nov): logged like a book, against one library entry of kind "news" made on first use.
+// The old app shows an unknown kind as "thinking" and leaves it off its lists, so both apps keep working on one store.
+function tbNewsId(){ const b=tbList("books").find(x=>x.kind==="news"); if(b) return b.id;
+  const n={ id:tmpId("b"), title:"Newspaper", author:"", kind:"news", status:"reading", earnedBy:null, owned:false, addedAt:isoNow(), updatedAt:isoNow() }; tbPut("books", n); return n.id; }
 function tbLogReading(bookId, minutes){ bookId=(tb.idmap||{})[bookId]||bookId; tbPut("readingLog", { id:tmpId("r"), date:ymd(now()), bookId, minutes, updatedAt:isoNow() }); }
 function tbMerge(local, remote){   // the old app's mergeLists: per id, the newer stamp wins
   const stamp=o=>(o&&(o.updatedAt||o.createdAt||o.addedAt||o.date))||"", m=new Map();
@@ -754,9 +814,10 @@ async function tbSync(){
 }
 async function writePractice(){
   // practice.json in the hub: journal entries, reading minutes and ideas per day, for the weekly line. Counts only, no text.
-  const days={}, add=(d,k,v)=>{ if(!d) return; days[d]=days[d]||{ journal:0, reading_min:0, reading_sessions:0, ideas:0 }; days[d][k]+=v; };
+  const days={}, add=(d,k,v)=>{ if(!d) return; days[d]=days[d]||{ journal:0, reading_min:0, reading_sessions:0, ideas:0, news_min:0 }; days[d][k]+=v; };
   (tb.entries||[]).forEach(e=>add(e.date,"journal",1));
-  tbList("readingLog").forEach(r=>{ add(r.date,"reading_min",+r.minutes||0); add(r.date,"reading_sessions",1); });
+  const news=new Set(tbList("books").filter(b=>b.kind==="news").map(b=>b.id));
+  tbList("readingLog").forEach(r=>{ add(r.date,"reading_min",+r.minutes||0); add(r.date,"reading_sessions",1); if(news.has(r.bookId)) add(r.date,"news_min",+r.minutes||0); });
   tbList("quarry").forEach(q=>add(String(q.createdAt||"").slice(0,10),"ideas",1));
   const r=await ghGet("practice.json"); let old={}; if(!r.missing){ try{ old=JSON.parse(r.text).days||{}; }catch(e){} }
   // Only this month's journal file is loaded, so a day in another month keeps the journal count it was written with;
@@ -772,7 +833,7 @@ function renderTb(n){
   document.querySelectorAll(".tb-tabs .chip").forEach(c=>c.setAttribute("aria-pressed",String(c.dataset.tb===tbTab)));
   const week0=new Date(n); week0.setDate(n.getDate()-((n.getDay()+6)%7)); const from=ymd(week0);
   const entries=(tb.entries||[]).concat(tb.journal.filter(e=>!e.id).map(e=>({ date:ymd(new Date(e.createdAt)), time:"", text:e.text, waiting:true })));
-  const books=tbList("books"), logs=tbList("readingLog"), ideas=tbList("quarry");
+  const allBooks=tbList("books"), books=allBooks.filter(b=>b.kind!=="news"), logs=tbList("readingLog"), ideas=tbList("quarry");
   const wkJ=entries.filter(e=>e.date>=from).length, wkMin=logs.filter(r=>r.date>=from).reduce((a,r)=>a+(+r.minutes||0),0);
   document.getElementById("tb-count").textContent = `this week: ${wkJ} journal · ${wkMin} min read`;
   // journal: the last entries of this month, newest first, each with a way to the ideas
@@ -783,9 +844,9 @@ function renderTb(n){
   // reading: books to pick, minutes as one tap, the recent sessions
   const sel=document.getElementById("tb-r-book"), keep=sel.value, byTitle=(a,b)=>a.title.localeCompare(b.title);
   const opts=(label,list)=>list.length?`<optgroup label="${label}">${list.sort(byTitle).map(b=>`<option value="${esc(b.id)}">${esc(b.title)}${b.status==="reading"?" (reading)":""}</option>`).join("")}</optgroup>`:"";
-  sel.innerHTML='<option value="">which book?</option>'+opts("Reading now",books.filter(b=>b.status==="reading"))+opts("On the shelf",books.filter(b=>b.status==="shelf"))+opts("Read",books.filter(b=>b.status==="done"));
+  sel.innerHTML='<option value="">which book?</option><option value="news">Newspaper / news</option>'+opts("Reading now",books.filter(b=>b.status==="reading"))+opts("On the shelf",books.filter(b=>b.status==="shelf"))+opts("Read",books.filter(b=>b.status==="done"));
   if(keep) sel.value=(tb.idmap||{})[keep]||keep;   // a book picked while its id came back from the sync stays picked
-  const title=id=>(books.find(b=>b.id===id)||{}).title||"a book";
+  const title=id=>(allBooks.find(b=>b.id===id)||{}).title||"a book";
   document.getElementById("tb-r-list").innerHTML = logs.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,4).map(r=>`<li><small>${esc(r.date)}</small><span>${esc(title(r.bookId))}: ${esc(r.minutes)} min</span></li>`).join("");
   const nextSt={ shelf:"reading", reading:"done", done:"shelf" }, stName={ shelf:"on the shelf", reading:"reading", done:"read" };
   const bookActs=b=>`<span class="acts"><select data-tbstatus="${esc(b.id)}" aria-label="Status of ${esc(b.title)}">${["shelf","reading","done"].map(st=>`<option value="${st}"${b.status===st?" selected":""}>${stName[st]}</option>`).join("")}</select><button type="button" data-tbbook="${esc(b.id)}" data-f="kind">${b.kind==="easy"?"fiction":"thinking"}</button>${b.owned?"<small>owned</small>":""}</span>`;
@@ -865,7 +926,9 @@ async function loadCards(){
       training={ date, day:trainingDay(JSON.parse(r.text), plan, date) }; }catch(e){ /* no access or offline: keep what we had */ } })(),
     // beach.json: written by the cphbeach Action. Optional; the Beach card shows only when it exists and reads.
     (async()=>{ try{ const r=await ghGet("beach.json"); beachCard = r.missing? null : JSON.parse(r.text); }catch(e){ beachCard=null; } })(),
-    // tankebaenken.json: written by the Tankebænken app. Optional.
+    // weekly_log.jsonl: one line per ISO week from the Action (Sunday evening), with hours per area. In shadow mode it is under shadow/.
+    (async()=>{ for(const f of ["weekly_log.jsonl","shadow/weekly_log.jsonl"]){ try{ const r=await ghGet(f); if(r.missing) continue;
+      weekly=r.text.split("\n").filter(l=>l.trim()).map(l=>{ try{ return JSON.parse(l); }catch(e){ return null; } }).filter(x=>x&&x.week); weeklyFrom=f; ls.set("overblik.weekly",weekly); return; }catch(e){ return; } } })(),
 
     // template.json: the template week, edited by hand. A copy that fails validation never replaces the last good one.
     (async()=>{ try{ const r=await ghGet("template.json"); if(r.missing) return; let t=null; try{ t=JSON.parse(r.text); }catch(e){}
@@ -878,6 +941,50 @@ function setStatus(text, cls){ const s=document.getElementById("status"); s.text
 // =====================================================================
 // 4. Render
 // =====================================================================
+// Pages behind the tab bar. The page is remembered per device and can be named in the address (#tomorrow from the evening push).
+const PAGES=["today","tomorrow","todos","tb","week","beach"];
+let page=PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : ls.get("overblik.page","today");
+let weekly=ls.get("overblik.weekly",[]), weeklyFrom="";
+function showPage(p){ if(!PAGES.includes(p)) return; page=p; ls.set("overblik.page",p); if(location.hash!=="#"+p) history.replaceState(null,"","#"+p); render(); window.scrollTo(0,0); }
+function renderTabs(){
+  const has={ tomorrow:!!tomorrowCard, beach:!!beachCard };
+  const shown=p=>has[p]!==false;
+  const cur=shown(page)?page:"today";
+  document.querySelectorAll("#tabs button[data-tab]").forEach(b=>{ b.hidden=!shown(b.dataset.tab); if(b.dataset.tab===cur) b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current"); });
+  document.querySelectorAll(".page[data-page]").forEach(d=>{ d.hidden=d.dataset.page!==cur; });
+  const bar=document.getElementById("tabs"), act=bar.querySelector("[aria-current]");
+  if(act){ const r=act.getBoundingClientRect(), br=bar.getBoundingClientRect();
+    if(r.left<br.left) bar.scrollLeft+=r.left-br.left-12; else if(r.right>br.right-24) bar.scrollLeft+=r.right-br.right+36; }
+  bar.classList.toggle("at-end", bar.scrollLeft+bar.clientWidth>=bar.scrollWidth-2);
+  // badges: what on a page waits for him. Tomorrow: proposals he has not answered; To-dos: open items in the blocks.
+  const c=tomorrowCard, waiting=c?(c.proposals||[]).filter(p=>p.action!=="moved" && !(p.action==="move" && accepts.items.some(x=>x.id===acceptId(c,p)))).length:0;
+  document.getElementById("tab-tm-n").textContent=waiting||"";
+  document.getElementById("tab-td-n").textContent=items.filter(i=>BLOCKS.includes(i.block)&&isDue(i)).length||"";
+}
+// Conflicts in few words: "Praktisk 10:00, Hus 11:00 clash with Forældre" instead of one long line each.
+function shortConflicts(list){
+  const by=new Map(), rest=[];
+  (list||[]).forEach(c=>{ const m=String(c).match(/^(.+?) (\d\d:\d\d) to \d\d:\d\d overlaps (.+?)(?: \(\d\d:\d\d to \d\d:\d\d\))?$/);
+    if(m){ if(!by.has(m[3])) by.set(m[3],[]); by.get(m[3]).push(`${m[1]} ${m[2]}`); } else rest.push(String(c)); });
+  return [...by].map(([k,v])=>`${v.join(", ")} ${v.length>1?"clash":"clashes"} with ${k}`).concat(rest);
+}
+const shortWhy = w => String(w||"").replace(/^overlaps /,"clashes with ").replace(/ \(\d\d:\d\d to \d\d:\d\d\)/g,"");
+// Hours per area from the weekly lines. The build week (W47) is shown but left out of the average: his decision of 22 Nov.
+const NOT_BASELINE=["2026-W47"];
+const AREAS=["Work","Training","Sport","S&M","Out","Praktisk","Hus","Fremtid","Tankebænken","Morning","Home"];
+function renderWeek(){
+  const el=document.getElementById("wk"), rows=(weekly||[]).filter(w=>w.hours).slice(-6);
+  if(!rows.length){ el.innerHTML='<div class="empty">No week logged yet. The Action writes one line every Sunday evening.</div>'; document.getElementById("wk-count").textContent=""; document.getElementById("wk-src").textContent=""; return; }
+  const base=rows.filter(w=>!NOT_BASELINE.includes(w.week)), areas=AREAS.filter(a=>rows.some(w=>(w.hours[a]||0)>0));
+  const f=v=>v==null?"":(Math.round(v*10)/10).toFixed(1), avg=a=>base.length?base.reduce((t,w)=>t+(w.hours[a]||0),0)/base.length:null;
+  const tot=w=>areas.reduce((t,a)=>t+(w.hours[a]||0),0);
+  el.innerHTML=`<table class="wk"><thead><tr><th>h</th>${rows.map(w=>`<th class="${NOT_BASELINE.includes(w.week)?"x":""}">W${esc(w.week.slice(-2))}</th>`).join("")}${base.length?'<th class="avg">avg</th>':""}</tr></thead><tbody>`
+    + areas.map(a=>`<tr><td>${esc(a)}</td>${rows.map(w=>`<td class="${NOT_BASELINE.includes(w.week)?"x":""}">${f(w.hours[a]||0)}</td>`).join("")}${base.length?`<td class="avg">${f(avg(a))}</td>`:""}</tr>`).join("")
+    + `</tbody><tfoot><tr><td>Total</td>${rows.map(w=>`<td>${f(tot(w))}</td>`).join("")}${base.length?`<td class="avg">${f(base.reduce((t,w)=>t+tot(w),0)/base.length)}</td>`:""}</tr></tfoot></table>`;
+  document.getElementById("wk-count").textContent=`${rows.length} week${rows.length===1?"":"s"}`;
+  document.getElementById("wk-src").textContent=(rows.some(w=>NOT_BASELINE.includes(w.week))?"W47 was the build week: shown, not in the average. ":"")
+    +(base.length?`Average of ${base.length} week${base.length===1?"":"s"}. `:"No ordinary week yet, so no average. ")+"From the calendar; overlaps are not netted out. Written each Sunday evening"+(weeklyFrom.startsWith("shadow/")?" (shadow run)":"")+".";
+}
 let renderHeld=false;   // a note being typed is not wiped by a re-render; the render waits until he leaves the field
 document.addEventListener("focusout",ev=>{ if(ev.target.matches&&ev.target.matches("input.ln, #e-text, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")&&renderHeld){ renderHeld=false; setTimeout(render,0); } });
 function render(){
@@ -890,7 +997,7 @@ function render(){
   const planned = timeline(document.getElementById("tl"), day, ymd(n), nowMin);
   document.getElementById("t-sum").textContent = (day.events||[]).length ? `${Math.round(planned/60*10)/10} h in blocks` : "";
   document.getElementById("fyi").innerHTML = (day.info&&day.info.length)?`<b>FYI</b> ${day.info.map(esc).join(" · ")}`:"";
-  document.getElementById("t-notes").innerHTML = (day.conflicts||[]).map(c=>`<li class="conf"><b>Conflict</b> ${esc(c)}</li>`).join("")
+  document.getElementById("t-notes").innerHTML = shortConflicts(day.conflicts).map(c=>`<li class="conf"><b>Conflict</b> ${esc(c)}</li>`).join("")
     + (day.adjustments||[]).map(a=>`<li><b>Adjusted</b> ${esc(a)}</li>`).join("");
   document.getElementById("t-pack").innerHTML = packHTML(eveningToday);
   renderTomorrow(n);
@@ -943,6 +1050,8 @@ function render(){
   renderBeach(n);
   renderEvents();
   renderTb(n);
+  renderWeek();
+  renderTabs();
 
   document.getElementById("f-note").textContent = configured()
     ? `${items.filter(i=>!i.done).length} open · ${cfg.owner}/${cfg.repo}` + (meta.dirty?" · changes waiting to sync":"")
@@ -1013,26 +1122,25 @@ function renderTomorrow(n){
   (c.adjustments||[]).filter(a=>!movedNames.some(m=>a.startsWith(m+" "))).forEach(a=>notes.push(`<li><b>Adjusted</b> ${esc(a)}</li>`));
   document.getElementById("tm-notes").innerHTML=notes.join("");
   document.getElementById("tm-pack").innerHTML=packHTML(c);
-  // proposals: what the planner moved, and what is his to move. Accepting is dragging the block in the calendar; the link opens it on the day.
+  // proposals: short cards. The first slot is the suggestion; "Accept suggested" takes the first slot of every card in one tap,
+  // and the Mac job moves them at its next run. Dragging in the calendar still works.
   const cal=`calshow:${Math.round((new Date(tm.getFullYear(),tm.getMonth(),tm.getDate(),12)-Date.UTC(2001,0,1))/1000)}`;
-  const open=`<a href="${cal}">Open calendar</a>`, span=p=>p.from?`<span class="mono">${esc(p.from.start)} to ${esc(p.from.end)}</span>`:"";
-  const slots=(list,first)=>list.length?`<div class="slots">${list.map((s,i)=>`<span class="slot${first&&i===0?" first":""}">${esc(s.label)}</span>`).join("")}</div>`:"";
+  const open=`<a href="${cal}">Open calendar</a>`, at=p=>p.from?` <span class="mono">${esc(p.from.start)}</span>`:"";
+  const head=(tag,p)=>`<div class="p-h"><span class="tag">${tag}</span><b>${esc(p.what)}</b>${at(p)}</div><div class="p-w">${esc(shortWhy(p.why))}</div>`;
+  const slots=list=>list.length?`<div class="slots">${list.map((s,i)=>`<span class="slot${i===0?" first":""}">${esc(s.label)}</span>`).join("")}</div>`:"";
+  const tappable=p=>p.action==="move" && p.uid && (p.slots||[]).length;
   const taps=(p,pi)=>{ const a=accepts.items.find(x=>x.id===acceptId(c,p));
     return `<div class="slots">${p.slots.map((s,si)=>{ const on=!!a&&a.to.date===s.date&&a.to.start===s.start;
-      return `<button class="slot" type="button" data-acc="${pi}|${si}" aria-pressed="${on}">${esc(s.label)}</button>`; }).join("")}</div>`; };
-  document.getElementById("tm-props").innerHTML = props.map((p,pi)=>{
-    if(p.action==="move" && p.uid && p.slots.length){
-      const a=accepts.items.find(x=>x.id===acceptId(c,p)), chosen=a&&p.slots.find(s=>s.date===a.to.date&&s.start===a.to.start);
-      return `<div class="prop move"><div class="p-h"><span class="tag">Yours to move</span><b>${esc(p.what)}</b>${span(p)}</div><div class="p-w">${esc(p.why)}</div>${taps(p,pi)}
-      <div class="p-a">${chosen?`Accepted ${esc(chosen.label)}: your Mac moves it at its next run. Tap it again to take it back.`:`Tap a slot to accept it; your Mac moves it. Or drag it yourself. ${open}`}</div></div>`;
-    }
-    if(p.action==="moved") return `<div class="prop moved"><div class="p-h"><span class="tag">Moved</span><b>${esc(p.what)}</b>${span(p)}</div><div class="p-w">${esc(p.why)}</div>${slots(p.slots,true)}
-      <div class="p-a">It is in the first slot. Prefer another? Drag it there in your calendar. ${open}</div></div>`;
-    if(p.action==="move") return `<div class="prop move"><div class="p-h"><span class="tag">Yours to move</span><b>${esc(p.what)}</b>${span(p)}</div><div class="p-w">${esc(p.why)}</div>${slots(p.slots,false)}
-      <div class="p-a">Free slots that fit. Drag it to one in your calendar, or leave it. ${open}</div></div>`;
-    if(p.action==="skip") return `<div class="prop skip"><div class="p-h"><span class="tag">No room</span><b>${esc(p.what)}</b>${span(p)}</div><div class="p-w">${esc(p.why)}</div>
-      <div class="p-a">No free slot that day. Skip it, or make room yourself. ${open}</div></div>`;
-    return `<div class="prop choose"><div class="p-h"><span class="tag">Yours to choose</span></div><div class="p-w">${esc(p.what)}</div><div class="p-a">Neither can be moved for you. ${open}</div></div>`;
+      return `<button class="slot" type="button" data-acc="${pi}|${si}" aria-pressed="${on}">${esc(s.label)}${si===0?'<span class="sug">suggested</span>':""}</button>`; }).join("")}</div>`; };
+  const open_=props.filter(p=>tappable(p) && !accepts.items.some(x=>x.id===acceptId(c,p))).length, anyTap=props.some(tappable);
+  const allBar = anyTap ? `<div class="acc-all">${open_?`<button class="btn primary" type="button" id="acc-all">Accept suggested (${open_})</button><span>Your Mac moves them at its next run.</span>`:`<span>All answered. Your Mac moves them at its next run.</span>`} ${open}</div>` : "";
+  document.getElementById("tm-props").innerHTML = allBar + props.map((p,pi)=>{
+    if(tappable(p)){ const a=accepts.items.find(x=>x.id===acceptId(c,p));
+      return `<div class="prop move">${head("Yours to move",p)}${taps(p,pi)}${a?`<div class="p-a">Accepted. Tap it again to take it back.</div>`:""}</div>`; }
+    if(p.action==="moved") return `<div class="prop moved">${head("Moved",p)}${slots((p.slots||[]).slice(0,1))}</div>`;
+    if(p.action==="move") return `<div class="prop move">${head("Yours to move",p)}${slots(p.slots||[])}<div class="p-a">Drag it in your calendar. ${open}</div></div>`;
+    if(p.action==="skip") return `<div class="prop skip">${head("No room",p)}<div class="p-a">No free slot: skipped tomorrow.</div></div>`;
+    return `<div class="prop choose"><div class="p-h"><span class="tag">Yours to choose</span></div><div class="p-w">${esc(shortWhy(p.what))}</div><div class="p-a">${open}</div></div>`;
   }).join("");
   document.getElementById("tm-src").textContent = `planned ${clock(c.generated)}` + ((c.changes||[]).length ? ` · ${c.changes.length} calendar change${c.changes.length===1?"":"s"} for the Mac to write` : "");
 }
@@ -1139,6 +1247,12 @@ document.querySelector(".wrap").addEventListener("click",e=>{   // pick or drop 
   const k=btn.dataset.opt; if(choices.options[k]) delete choices.options[k]; else choices.options[k]="yes";
   choices.dirty=true; ls.set(LS.choices,choices); render(); sync("choice");
 });
+document.querySelector(".wrap").addEventListener("click",e=>{   // accept the suggested (first) slot of every open proposal in one tap
+  if(!e.target.closest("#acc-all")||!tomorrowCard) return; const c=tomorrowCard, at=new Date().toISOString();
+  (c.proposals||[]).forEach(p=>{ if(!(p.action==="move"&&p.uid&&(p.slots||[]).length)) return; const id=acceptId(c,p); if(accepts.items.some(x=>x.id===id)) return; const s=p.slots[0];
+    accepts.items.push({ id, plan_id:c.plan_id, calendar:p.calendar, uid:p.uid, title:p.what, date:p.date, from:p.from, to:{date:s.date,start:s.start,end:s.end}, at }); });
+  accepts.dirty=true; ls.set(LS.accepts,accepts); render(); sync("accept");
+});
 document.querySelector(".wrap").addEventListener("click",e=>{   // accept a slot of a proposal, or take it back
   const btn=e.target.closest("button[data-acc]"); if(!btn||!tomorrowCard) return;
   const [pi,si]=btn.dataset.acc.split("|").map(Number), c=tomorrowCard, p=(c.proposals||[])[pi], s=p&&p.slots[si]; if(!s) return;
@@ -1223,7 +1337,7 @@ document.getElementById("tb-j-save").addEventListener("click",()=>{
 });
 document.querySelectorAll(".tb-mins .pick").forEach(b=>b.addEventListener("click",()=>{
   const book=document.getElementById("tb-r-book").value; if(!book){ document.getElementById("tb-r-book").focus(); return; }
-  tbLogReading(book, +b.dataset.min); render(); tbSync();
+  tbLogReading(book==="news"?tbNewsId():book, +b.dataset.min); render(); tbSync();
 }));
 document.getElementById("tb-b-add").addEventListener("click",()=>{
   const t=document.getElementById("tb-b-title"); if(!t.value.trim()) return;
@@ -1249,10 +1363,13 @@ document.querySelector(".wrap").addEventListener("click",ev=>{
     tbPut("books",{ ...b, ...ch, updatedAt:isoNow() }); render(); tbSync(); } return; }
   const pr=ev.target.closest("button[data-tbpromote]"); if(pr){ const e=(tb.entries||[]).find(x=>x.id===pr.dataset.tbpromote); if(e){ tbAddIdea(e.text, "Journal · "+e.date, e.id); render(); tbSync(); } return; }
   const id=ev.target.closest("button[data-tbidea]"); if(id){ tbIdeaStatus(id.dataset.tbidea, id.dataset.st); render(); tbSync(); return; }
-  const go=ev.target.closest("button[data-tbgo]"); if(go){ tbTab=go.dataset.tbgo; render(); document.getElementById("tb-sec").scrollIntoView({behavior:"smooth"}); }
+  const go=ev.target.closest("button[data-tbgo]"); if(go){ tbTab=go.dataset.tbgo; showPage("tb"); }
 });
 window.addEventListener("online",()=>sync("online"));
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden) sync("resume"); });
+document.getElementById("tabs").addEventListener("scroll",e=>e.currentTarget.classList.toggle("at-end", e.currentTarget.scrollLeft+e.currentTarget.clientWidth>=e.currentTarget.scrollWidth-2),{passive:true});
+document.getElementById("tabs").addEventListener("click",e=>{ const b=e.target.closest("button[data-tab]"); if(b) showPage(b.dataset.tab); });
+window.addEventListener("hashchange",()=>{ const h=location.hash.slice(1); if(PAGES.includes(h)&&h!==page) showPage(h); });
 setInterval(render, 60000);
 
 render();

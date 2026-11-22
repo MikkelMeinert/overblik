@@ -40,6 +40,7 @@ const PLAN = { days: [{ date: '2026-01-06', session: 'Upper · horizontal', reas
   const browser = await chromium.launch();
   const open = async iso => {
     const ctx = await browser.newContext({ viewport: { width: 400, height: 1400 }, timezoneId: 'Europe/Copenhagen', locale: 'en-GB' });
+    await require('./_all_pages')(ctx);
     await ctx.clock.install({ time: new Date(iso) });
     await ctx.route('https://api.github.com/**', handler);
     await ctx.route('https://fonts.googleapis.com/**', r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));

@@ -65,6 +65,7 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.webmanifest': 
   const errs = [];
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 400, height: 900 }, timezoneId: 'Europe/Copenhagen', locale: 'en-GB', serviceWorkers: 'allow' });
+  await require('./_all_pages')(ctx);
   await ctx.route('https://api.github.com/**', handler);
   await ctx.route('https://fonts.googleapis.com/**', r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
   await ctx.route('https://fonts.gstatic.com/**', r => r.fulfill({ status: 200, body: '' }));
