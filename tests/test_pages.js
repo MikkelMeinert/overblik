@@ -46,7 +46,15 @@ const STATE = { version: 1, appVersion: '1.1.1', stones: [], quarry: [],
   const repos = { 'overblik-data': { 'template.json': JSON.stringify(TEMPLATE), 'today.json': JSON.stringify(TODAY), 'tomorrow.json': JSON.stringify(TOMORROW),
       'shadow/weekly_log.jsonl': WEEKLY, 'inbox.json': JSON.stringify({ version: 1, items: [
         { id: 'a1', text: 'Ring til banken', block: 'praktisk', created: '2026-01-05', updated: '2026-01-05T10:00:00Z', done: null },
-        { id: 'a2', text: 'A wish for the app', block: 'app', created: '2026-01-05', updated: '2026-01-05T10:00:00Z', done: null } ] }) },
+        { id: 'a2', text: 'A wish for the app', block: 'app', created: '2026-01-05', updated: '2026-01-05T10:00:00Z', done: null },
+        { id: 'a3', text: 'Køb hat til fredag', block: 'praktisk', created: '2026-01-06', updated: '2026-01-06T10:00:00Z', done: null },
+        { id: 'a4', text: 'Bring madkasse every workday', block: 'hus', created: '2026-01-06', updated: '2026-01-06T10:00:00Z', done: null },
+        { id: 'a5', text: 'Ring banken', block: 'praktisk', created: '2026-01-06', updated: '2026-01-06T10:00:00Z', done: null } ] }),
+      'triage.json': JSON.stringify({ generated: '2026-01-06T17:43:00+01:00', items: {
+        a1: { text: 'Ring til banken', minutes: 15, importance: 2, kind: 'todo', block: 'praktisk' },
+        a3: { text: 'Køb hat til fredag', minutes: 30, importance: 3, kind: 'purchase', block: 'praktisk', price_dkk: 250, everyday: false },
+        a4: { text: 'Bring madkasse every workday', minutes: 5, importance: 2, kind: 'packing', block: 'hus' },
+        a5: { text: 'Ring banken', minutes: 10, importance: 2, kind: 'todo', block: 'praktisk', duplicate_of: 'a1' } } }) },
     'tankebaenken-data': { 'state.json': JSON.stringify(STATE) } };
   const handler = async route => {
     const req = route.request(); const u = new URL(req.url()); const repo = u.pathname.split('/')[3]; const p = decodeURIComponent(u.pathname.split('/contents/')[1]);
@@ -94,7 +102,7 @@ const STATE = { version: 1, appVersion: '1.1.1', stones: [], quarry: [],
   });
   await check('badges: proposals waiting for him, and open to-dos', async () => {
     assert.strictEqual(await page.textContent('#tab-tm-n'), '3', 'two to move and one with no room; what the planner moved is not counted');
-    assert.strictEqual(await page.textContent('#tab-td-n'), '1', 'an app wish is not a to-do');
+    assert.strictEqual(await page.textContent('#tab-td-n'), '4', 'four to-dos; an app wish is not one');
   });
   await check('a tab shows its page, is remembered, and the address names it', async () => {
     await page.click('#tabs [data-tab="todos"]');
@@ -114,6 +122,26 @@ const STATE = { version: 1, appVersion: '1.1.1', stones: [], quarry: [],
     assert.strictEqual(await page.textContent('#acc-all'), 'Accept suggested (2)');
   });
   await shot('2-tomorrow');
+  await check('triage: importance first, Claude\'s minutes, and one-tap suggestions', async () => {
+    await page.click('#tabs [data-tab="todos"]');
+    const rows = await page.$$eval('#groups .group.praktisk li.item', els => els.map(e => e.innerText.replace(/\s+/g, ' ').trim()));
+    assert.match(rows[0], /^Køb hat til fredag.* 30 m$/, 'the important one first: ' + rows.join(' | '));
+    assert.match(rows[1], /^Ring til banken.* 15 m$/);
+    const sug = await page.$$eval('li.edit.tri', els => els.map(e => e.innerText.replace(/\s+/g, ' ').trim()));
+    assert.ok(sug.some(t => /^Claude: a purchase, about 250 kr Keep as is$/.test(t)), JSON.stringify(sug));
+    assert.ok(sug.some(t => /^Claude: same as “Ring til banken” Merge Keep as is$/.test(t)));
+    await page.click('button[data-tri="a5"][data-v="merge"]'); await idle();
+    const a5 = JSON.parse(repos['overblik-data']['inbox.json']).items.find(i => i.id === 'a5');
+    assert.ok(a5.done && a5.merged === 'a1', 'merged: the newer one is done and points to the older');
+    if (await page.evaluate(() => document.getElementById('backlog').hidden)) await page.click('#b-toggle');
+    await page.click('button[data-tri="a4"][data-v="pack"]');
+    assert.strictEqual(await page.inputValue('#pk-item'), 'Bring madkasse every workday');
+    await page.fill('#pk-item', 'madkasse'); await page.selectOption('#pk-for', 'Work'); await page.selectOption('#pk-when', ''); await page.click('#pk-form button'); await idle();
+    assert.ok(JSON.parse(repos['overblik-data']['inbox.json']).items.find(i => i.id === 'a4').done, 'the to-do is done once the rule is made');
+    await page.click('button[data-tri="a3"][data-v="no"]'); await idle();
+    assert.ok(JSON.parse(repos['overblik-data']['inbox.json']).items.find(i => i.id === 'a3').nosuggest);
+    await page.click('#tabs [data-tab="tomorrow"]');
+  });
   await check('a morning workout has an Afternoon button; a tap asks the calendar writer to move it, a second takes it back', async () => {
     const b = '#tm-tl button[data-pm]';
     assert.strictEqual(await page.textContent(b), 'Afternoon 16:00');
@@ -173,14 +201,14 @@ const STATE = { version: 1, appVersion: '1.1.1', stones: [], quarry: [],
     assert.deepStrictEqual(await page.$$eval('#pk-start option', o => o.map(x => x.textContent)), ['first Mon 12 Jan', 'first Mon 19 Jan']);
     await page.selectOption('#pk-start', '2026-01-19'); await page.click('#pk-form button'); await idle();
     await page.fill('#pk-item', 'lunchbox'); await page.selectOption('#pk-for', 'Work'); await page.selectOption('#pk-when', ''); await page.click('#pk-form button'); await idle();
-    const rules = JSON.parse(repos['overblik-data']['packing.json']).rules;
+    const rules = JSON.parse(repos['overblik-data']['packing.json']).rules.filter(r => r.item !== 'madkasse');   // made in the triage check
     assert.deepStrictEqual(rules.map(r => [r.item, r.for, (r.on || []).join(), r.every || 0, r.from || '']),
       [['sand socks', 'Every day', 'mon', 14, '2026-01-19'], ['lunchbox', 'Work', '', 0, '']]);
-    assert.deepStrictEqual(await page.$$eval('#pk-list li > span', e => e.map(x => x.textContent)),
+    assert.deepStrictEqual(await page.$$eval('#pk-list li > span', e => e.map(x => x.textContent)).then(l => l.filter(t => !t.startsWith('madkasse'))),
       ['sand socks · every day out · every other Monday · next Mon 19 Jan', 'lunchbox · Work · every time · next Tue 6 Jan']);
-    await page.click('#pk-list [data-pkdel] >> nth=1'); await idle();
+    await page.click('#pk-list li:has-text("lunchbox") [data-pkdel]'); await idle();
     assert.ok(JSON.parse(repos['overblik-data']['packing.json']).rules.find(r => r.item === 'lunchbox').removed, 'removed is kept, so other devices learn it');
-    assert.strictEqual(await page.textContent('#pk-count'), '1');
+    assert.strictEqual(await page.textContent('#pk-count'), '2', 'sand socks, and madkasse from the triage check');
   });
   await shot('4-tankebaenken');
   await check('no page errors', async () => assert.deepStrictEqual(errs, []));

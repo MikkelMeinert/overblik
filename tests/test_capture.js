@@ -9,7 +9,7 @@ const APP = 'file://' + path.resolve(__dirname, '..', 'index.html');
   const results = []; let failed = 0;
   const check = async (name, fn) => {
     try { await fn(); results.push('ok    ' + name); }
-    catch (e) { failed++; results.push('FAIL  ' + name + '\n      ' + String(e.message).split('\n')[0]); }
+    catch (e) { failed++; results.push('FAIL  ' + name + '\n      ' + String(e.message).split('\n').slice(0,8).join(' ')); }
   };
   const errs = [];
   const browser = await chromium.launch();

@@ -209,6 +209,8 @@ span.rep { font-size: 10.5px; color: var(--fg-3); margin-right: 4px; }
 li.load b { color: var(--warn); }
 .tl li.gap .name { font-weight: 500; color: var(--fg-2); }
 .tl li.gap .bar { background: repeating-linear-gradient(var(--line) 0 4px, transparent 4px 8px); }
+li.edit.tri { font-size: 12.5px; color: var(--fg-2); }
+li.item.imp .txt::before { content: "!"; color: var(--warn); font-weight: 700; margin-right: 4px; }
 details.built { margin-top: 10px; font-size: 13px; color: var(--fg-2); }
 details.built summary { cursor: pointer; font: 500 11px/1.4 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
 details.built ul { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 6px; }
@@ -504,6 +506,12 @@ const tomorrowOf = d => { const x=new Date(d); x.setDate(x.getDate()+1); return 
 const now = ()=>new Date();
 function ymd(d){ const z=n=>String(n).padStart(2,"0"); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`; }
 const minutesOf = t => { const m=/\((\d+)\s*m\)/i.exec(t); return m?+m[1]:10; };
+// Claude's triage (triage.json, since 26 Nov): an entry counts while the item's text is the one Claude read.
+let triage = ls.get("overblik.triage", null), convertFrom = null;
+const tri = i => { const t=triage&&triage.items&&triage.items[i.id]; return t&&t.text===i.text ? t : null; };
+const itemMin = i => /\((\d+)\s*m\)/i.test(i.text) ? minutesOf(i.text) : ((tri(i)||{}).minutes || 10);   // his own "(20m)" wins
+const imp = i => (tri(i)||{}).importance || 2;
+const byImportance = (x,y) => imp(y)-imp(x) || x.created.localeCompare(y.created) || x.id.localeCompare(y.id);   // his wish of 26 Nov: importance over dates
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function saveLocal(){ ls.set(LS.items, items); ls.set(LS.meta, meta); }
 
@@ -715,9 +723,9 @@ function setLog(date, e, patch){
 function agendaItems(e, date){
   // what this agenda block holds today: the items done today in its block, then the open ones that fit, oldest first
   const done=items.filter(i=>i.block===e.block&&doneOn(i,date));
-  const cap=toMin(e.end)-toMin(e.start); let used=done.reduce((a,i)=>a+minutesOf(i.text),0); const fits=[];   // done items keep their minutes
-  items.filter(i=>i.block===e.block&&isDue(i)).sort((x,y)=>x.created.localeCompare(y.created)||x.id.localeCompare(y.id))
-    .forEach(it=>{ const m=minutesOf(it.text); if(used+m<=cap){ used+=m; fits.push(it); } });
+  const cap=toMin(e.end)-toMin(e.start); let used=done.reduce((a,i)=>a+itemMin(i),0); const fits=[];   // done items keep their minutes
+  items.filter(i=>i.block===e.block&&isDue(i)).sort(byImportance)
+    .forEach(it=>{ const m=itemMin(it); if(used+m<=cap){ used+=m; fits.push(it); } });
   return done.concat(fits);
 }
 function logAgenda(date, e){   // an agenda block's entry follows its items: done, partly, or nothing yet
@@ -731,7 +739,7 @@ function logHTML(date, e){
   const r=((logBook.days[date]||{})[logKey(e)])||{}, k=esc(date+"/"+logKey(e));
   if(e.kind==="block" && BLOCKS.includes(e.block)){
     const list=agendaItems(e,date), done=list.filter(i=>doneOn(i,date)).length;
-    const rows=list.map(it=>`<li class="item${doneOn(it,date)?" done":""}"><button class="box" aria-label="Mark done" data-id="${esc(it.id)}"><svg viewBox="0 0 12 12" fill="none" stroke-width="2"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg></button><button class="txt" data-id="${esc(it.id)}">${esc(it.text.replace(/\s*\(\d+\s*m\)/i,""))}</button><span class="min">${minutesOf(it.text)} m</span></li>`).join("");
+    const rows=list.map(it=>`<li class="item${doneOn(it,date)?" done":""}"><button class="box" aria-label="Mark done" data-id="${esc(it.id)}"><svg viewBox="0 0 12 12" fill="none" stroke-width="2"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg></button><button class="txt" data-id="${esc(it.id)}">${esc(it.text.replace(/\s*\(\d+\s*m\)/i,""))}</button><span class="min">${itemMin(it)} m</span></li>`).join("");
     return `<ul class="items">${rows}</ul><div class="lg"><span class="st">${list.length?`${done} of ${list.length} done; the rest moves on`:"nothing planned"}</span>`
       + `<button type="button" data-log="${k}" data-st="skipped" aria-pressed="${r.status==="skipped"}" style="--c:var(--bad)">Skipped</button></div>`;
   }
@@ -983,6 +991,7 @@ async function loadCards(){
       let plan=null; try{ const pr=await ghGet("plan.json", trRepo()); if(!pr.missing) plan=JSON.parse(pr.text); }catch(e){}
       training={ date, day:trainingDay(JSON.parse(r.text), plan, date) }; }catch(e){ /* no access or offline: keep what we had */ } })(),
     // beach.json: written by the cphbeach Action. Optional; the Beach card shows only when it exists and reads.
+    (async()=>{ try{ const r=await ghGet("triage.json"); if(!r.missing){ triage=JSON.parse(r.text); ls.set("overblik.triage",triage); } }catch(e){} })(),
     (async()=>{ try{ const r=await ghGet("beach.json"); beachCard = r.missing? null : JSON.parse(r.text); }catch(e){ beachCard=null; } })(),
     // weekly_log.jsonl: one line per ISO week from the Action (Sunday evening), with hours per area. In shadow mode it is under shadow/.
     (async()=>{ for(const f of ["weekly_log.jsonl","shadow/weekly_log.jsonl"]){ try{ const r=await ghGet(f); if(r.missing) continue;
@@ -1102,24 +1111,36 @@ function render(){
   let nextCount=0, backCount=0; const today=ymd(n);
   const label=b=>b[0].toUpperCase()+b.slice(1);
   const pending=it=>meta.dirty && (!meta.lastSync || (it.updated||"")>meta.lastSync);
-  const row=(it,m)=>`<li class="item${it.done?" done":""}${pending(it)?" pending":""}">
+  // Claude's suggestion for an item, one tap each (26 Nov): another block, an app wish, a packing rule, an event, a duplicate.
+  const suggest=it=>{ const t=tri(it); if(!t||it.done||it.nosuggest) return "";
+    const acts=[], why=[];
+    if(t.kind==="wish"&&it.block!=="app"){ why.push("looks like an app wish"); acts.push(["app","Move to App wishes"]); }
+    else if(t.kind==="packing"){ why.push("looks like a packing rule"); acts.push(["pack","Make a packing rule"]); }
+    else if(t.kind==="event"){ why.push("looks like an event"); acts.push(["event","Make an event"]); }
+    else if(t.block&&BLOCKS.includes(t.block)&&t.block!==it.block&&it.block!=="app"){ why.push(`fits ${t.block[0].toUpperCase()+t.block.slice(1)} better`); acts.push(["block:"+t.block,"Move"]); }
+    const dup=t.duplicate_of&&items.find(i=>i.id===t.duplicate_of&&!i.done);
+    if(dup){ why.push(`same as \u201c${dup.text.replace(/\s*\(\d+\s*m\)/i,"").slice(0,40)}\u201d`); acts.push(["merge","Merge"]); }
+    if(t.kind==="purchase") why.push(`a purchase${t.price_dkk?`, about ${t.price_dkk} kr`:""}`);
+    if(!why.length) return "";
+    return `<li class="edit tri"><span>Claude: ${esc(why.join("; "))}</span><span class="acts">${acts.map(([v,l])=>`<button class="pick" type="button" data-tri="${esc(it.id)}" data-v="${esc(v)}">${l}</button>`).join("")}<button class="pick" type="button" data-tri="${esc(it.id)}" data-v="no">Keep as is</button></span></li>`; };
+  const row=(it,m)=>`<li class="item${it.done?" done":""}${pending(it)?" pending":""}${imp(it)===3?" imp":""}">
       <button class="box" aria-label="Mark done" data-id="${esc(it.id)}"><svg viewBox="0 0 12 12" fill="none" stroke-width="2"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg></button>
       <button class="txt" data-edit="${esc(it.id)}" aria-label="Edit">${esc(it.text.replace(/\s*\(\d+\s*m\)/i,""))}<small>${it.created===today?"today":new Date(it.created).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</small></button>
       <span class="min">${it.repeat?`<span class="rep">${esc(repeatLabel(it))}${it.due&&it.due>ymd(now())?` · ${esc(evLabel({date:it.due}))}`:""}</span> `:""}${m} m</span></li>${it.repeat&&it.due&&!it.done&&daysSince(it.due)>=Math.max(7,2*it.repeat)?`<li class="edit rc"><span>Not done for ${daysSince(it.due)<14?daysSince(it.due)+" days":Math.round(daysSince(it.due)/7)+" weeks"}. Still worth it?</span>
-      <span class="acts">${[["keep","Keep"],["less","Less often"],["drop","Drop"]].map(([v,l])=>`<button class="pick" data-rc="${esc(it.id)}" data-v="${v}">${l}</button>`).join("")}</span></li>`:""}${editing===it.id?`<li class="edit"><input id="e-text" value="${esc(it.text)}" aria-label="Text">
+      <span class="acts">${[["keep","Keep"],["less","Less often"],["drop","Drop"]].map(([v,l])=>`<button class="pick" data-rc="${esc(it.id)}" data-v="${v}">${l}</button>`).join("")}</span></li>`:""}${suggest(it)}${editing===it.id?`<li class="edit"><input id="e-text" value="${esc(it.text)}" aria-label="Text">
       <select id="e-block" aria-label="Block">${BLOCKS.concat("app").map(b=>`<option value="${b}"${it.block===b?" selected":""}>${b==="app"?"App wish":label(b)}</option>`).join("")}</select>
       <select id="e-repeat" aria-label="Repeat">${(()=>{ const cur=!it.repeat?"":it.repeat===1?(it.on&&it.on.length===5?"wd":"1"):String(it.repeat);
         return [["","No repeat"],["1","Every day"],["wd","Every workday"],["7","Every week"],["14","Every other week"],["30","Every month"]].map(([v,l])=>`<option value="${v}"${cur===v?" selected":""}>${l}</option>`).join(""); })()}</select>
       <select id="e-on" aria-label="On">${[["","any day"],["mon","Monday"],["tue","Tuesday"],["wed","Wednesday"],["thu","Thursday"],["fri","Friday"],["sat","weekend"],["sun","Sunday"]].map(([v,l])=>`<option value="${v}"${(it.on&&it.on.length===1?it.on[0]:"")===v?" selected":""}>${l}</option>`).join("")}</select>
       <span class="acts"><button class="pick" id="e-save">Save</button><button class="pick" id="e-cancel">Cancel</button></span></li>`:""}`;
   BLOCKS.forEach(b=>{
-    const open=items.filter(i=>i.block===b&&isDue(i)).sort((x,y)=>x.created.localeCompare(y.created)||x.id.localeCompare(y.id));
+    const open=items.filter(i=>i.block===b&&isDue(i)).sort(byImportance);
     const doneToday=items.filter(i=>i.block===b&&i.done&&(i.done.slice(0,10)===today));
     const nb=nextBlock(b,n,todayCard,tomorrowCard); const cap=nb?nb.minutes:DEFAULT_BLOCK_MIN; let used=0; const fits=[], rolls=[];
-    open.forEach(it=>{ const m=minutesOf(it.text); if(used+m<=cap){used+=m;fits.push([it,m]);} else rolls.push([it,m]); });
+    open.forEach(it=>{ const m=itemMin(it); if(used+m<=cap){used+=m;fits.push([it,m]);} else rolls.push([it,m]); });
     if(fits.length||doneToday.length){
       const sec=document.createElement("section"); sec.className="group "+b;
-      sec.innerHTML=`<div class="gh"><span class="name">${label(b)}</span><span class="when">${nb?nb.label+" · "+cap+" min":""}</span></div><ul class="items">${fits.map(([it,m])=>row(it,m)).join("")}${doneToday.map(it=>row(it,minutesOf(it.text))).join("")}</ul>
+      sec.innerHTML=`<div class="gh"><span class="name">${label(b)}</span><span class="when">${nb?nb.label+" · "+cap+" min":""}</span></div><ul class="items">${fits.map(([it,m])=>row(it,m)).join("")}${doneToday.map(it=>row(it,itemMin(it))).join("")}</ul>
         <div class="fill"><i style="width:${Math.min(100,used/cap*100)}%"></i></div><div class="fill-l">${used} of ${cap} min planned${rolls.length?` · ${rolls.length} waiting in backlog`:""}</div>`;
       g.appendChild(sec); nextCount+=fits.length;
     }
@@ -1137,14 +1158,14 @@ function render(){
   // so he can see and edit them; before, an item waiting for its date was nowhere in the app.
   const later=items.filter(i=>BLOCKS.includes(i.block)&&!i.done&&i.repeat&&i.due&&i.due>today).sort((x,y)=>x.due.localeCompare(y.due));
   if(later.length){ const sec=document.createElement("section"); sec.className="group later";
-    sec.innerHTML=`<div class="gh"><span class="name">Repeating, not due yet</span><span class="when">${later.length}</span></div><ul class="items">${later.map(it=>row(it,minutesOf(it.text))).join("")}</ul>`;
+    sec.innerHTML=`<div class="gh"><span class="name">Repeating, not due yet</span><span class="when">${later.length}</span></div><ul class="items">${later.map(it=>row(it,itemMin(it))).join("")}</ul>`;
     bl.appendChild(sec); }
   bl.hidden=!backlogOpen; document.getElementById("b-toggle").setAttribute("aria-expanded",String(backlogOpen));
   // App wishes: what he wants changed in Overblik itself. Read by each session; never planned into a block.
   const ap=document.getElementById("apps"), wishes=items.filter(i=>i.block==="app"&&(!i.done||i.done.slice(0,10)===today)).sort((x,y)=>x.created.localeCompare(y.created));
   // Built wishes (since 26 Nov): ticking a wish marks it built; it stays on record under "Built", newest first, with its date.
   const built=items.filter(i=>i.block==="app"&&i.done&&i.done.slice(0,10)!==today).sort((x,y)=>y.done.localeCompare(x.done));
-  ap.innerHTML=(wishes.length?`<section class="group app"><ul class="items">${wishes.map(it=>row(it,minutesOf(it.text))).join("")}</ul></section>`:'<div class="empty">No wishes open. Tap App when you capture one.</div>')
+  ap.innerHTML=(wishes.length?`<section class="group app"><ul class="items">${wishes.map(it=>row(it,itemMin(it))).join("")}</ul></section>`:'<div class="empty">No wishes open. Tap App when you capture one.</div>')
     + (built.length?`<details class="built"><summary>Built (${built.length})</summary><ul>${built.map(i=>`<li><span class="mono">${esc(i.done.slice(0,10))}</span> ${esc(i.text)}</li>`).join("")}</ul></details>`:"");
   ap.hidden=!appsOpen; document.getElementById("a-toggle").setAttribute("aria-expanded",String(appsOpen));
   document.getElementById("a-count").textContent=`${items.filter(i=>i.block==="app"&&!i.done).length} open`;
@@ -1330,7 +1351,7 @@ document.getElementById("cap-form").addEventListener("submit",e=>{
   if(block==="event"){
     const ev=parseEvent(text); if(!ev){ renderEvents(); return; }   // the hint says what is missing; the text stays
     const cal=document.getElementById("ev-cal"), ts2=new Date().toISOString();
-    events.items.push({ id:uid(), title:ev.title, calendar:cal.value, date:ev.date, start:ev.start, end:ev.end, created:ts2, updated:ts2 }); events.dirty=true; ls.set("overblik.events",events);
+    events.items.push({ id:uid(), title:ev.title, calendar:cal.value, date:ev.date, start:ev.start, end:ev.end, created:ts2, updated:ts2 }); events.dirty=true; ls.set("overblik.events",events); finishConvert();
     inp.value=""; cal.value="Transport"; chipByHand=false; showBlock("praktisk"); render(); inp.focus(); sync("event"); return;
   }
   if(block==="idea"){ tbAddIdea(text, "Captured in Overblik"); inp.value=""; chipByHand=false; showBlock("praktisk"); render(); inp.focus(); tbSync(); return; }
@@ -1371,6 +1392,19 @@ document.querySelector(".wrap").addEventListener("click",e=>{   // pick or drop 
   const k=btn.dataset.opt; if(choices.options[k]) delete choices.options[k]; else choices.options[k]="yes";
   choices.dirty=true; ls.set(LS.choices,choices); render(); sync("choice");
 });
+document.querySelector(".wrap").addEventListener("click",ev=>{   // a tap on one of Claude's suggestions
+  const b=ev.target.closest("button[data-tri]"); if(!b) return; const it=items.find(i=>i.id===b.dataset.tri); if(!it) return;
+  const v=b.dataset.v, ts=new Date().toISOString(), t=tri(it)||{};
+  if(v==="no") it.nosuggest=true;
+  else if(v==="app") it.block="app";
+  else if(v.startsWith("block:")) it.block=v.slice(6);
+  else if(v==="merge"){ it.done=ts; it.merged=t.duplicate_of; }
+  else if(v==="pack"){ convertFrom=it.id; pkOpen=true; ls.set("overblik.pkOpen",true); showPage("todos"); document.getElementById("pk-item").value=it.text.replace(/\s*\(\d+\s*m\)/i,""); document.getElementById("pk-sec").scrollIntoView({block:"start"}); document.getElementById("pk-item").focus(); return; }
+  else if(v==="event"){ convertFrom=it.id; const c=document.getElementById("cap"); c.value=it.text; chipByHand=true; showBlock("event"); window.scrollTo(0,0); c.focus(); return; }
+  it.updated=ts; meta.dirty=true; saveLocal(); render(); sync("triage");
+});
+// an item turned into a packing rule or an event is done once the rule or event is made
+function finishConvert(){ if(!convertFrom) return; const it=items.find(i=>i.id===convertFrom); convertFrom=null; if(!it||it.done) return; it.done=new Date().toISOString(); it.updated=it.done; meta.dirty=true; saveLocal(); }
 document.querySelector(".wrap").addEventListener("click",ev=>{   // a morning workout to the afternoon (his wish of 26 Nov); again takes it back
   const b=ev.target.closest("button[data-pm]"); if(!b) return; const [date,start,...nm]=b.dataset.pm.split("|"), name=nm.join("|");
   const card=[todayCard,tomorrowCard].find(c=>c&&c.date===date); const e=card&&(card.events||[]).find(x=>x.start===start&&x.name===name); if(!e||!e.pm) return;
@@ -1508,7 +1542,7 @@ document.getElementById("pk-form").addEventListener("submit",e=>{ e.preventDefau
   const when=document.getElementById("pk-when").value, wd=document.getElementById("pk-on").value, ts=new Date().toISOString();
   const r={ id:uid(), item, for:document.getElementById("pk-for").value, created:ts, updated:ts };
   if(when){ r.on=[wd]; if(when==="14"){ r.every=14; r.from=document.getElementById("pk-start").value||firstOn(ymd(now()),[wd]); } }
-  packing.rules.push(r); packing.dirty=true; ls.set("overblik.packing",packing); document.getElementById("pk-item").value=""; render(); sync("packing"); });
+  packing.rules.push(r); packing.dirty=true; ls.set("overblik.packing",packing); document.getElementById("pk-item").value=""; finishConvert(); render(); sync("packing"); });
 document.querySelector(".wrap").addEventListener("click",e=>{ const b=e.target.closest("button[data-pkdel]"); if(!b) return;
   const r=packing.rules.find(x=>x.id===b.dataset.pkdel); if(!r) return; r.removed=true; r.updated=new Date().toISOString(); packing.dirty=true; ls.set("overblik.packing",packing); render(); sync("packing"); });
 document.getElementById("tabs").addEventListener("click",e=>{ const b=e.target.closest("button[data-tab]"); if(b) showPage(b.dataset.tab); });
