@@ -1,7 +1,7 @@
 // Overblik service worker: opens the app offline, and shows the evening push.
 // Bump CACHE on every deploy (SHARED-RULES): the new name makes the browser fetch the shell again and drop the old copy.
 // It caches only the shell from this origin. Calls to api.github.com are never cached here; the app keeps its own copy.
-const CACHE = "overblik-v14";
+const CACHE = "overblik-v15";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon-180.png", "icon-512.png"];
 
 self.addEventListener("install", e => {

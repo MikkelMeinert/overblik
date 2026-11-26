@@ -198,6 +198,11 @@ footer { font-size: 12px; color: var(--fg-3); display: flex; justify-content: sp
 footer button { text-decoration: underline; text-underline-offset: 2px; }
 @media (prefers-reduced-motion: no-preference) { .item .box, .chip { transition: background .15s, border-color .15s; } }
 #ev-list:empty, .evrow:has(select[hidden]):has(#ev-prev:empty) { display: none; }
+span.rep { font-size: 10.5px; color: var(--fg-3); margin-right: 4px; }
+details.built { margin-top: 10px; font-size: 13px; color: var(--fg-2); }
+details.built summary { cursor: pointer; font: 500 11px/1.4 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
+details.built ul { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 6px; }
+details.built .mono { color: var(--fg-3); font-size: 11.5px; margin-right: 4px; }
 /* pages behind a tab bar (since 22 Nov): one page at a time, the capture box above them on every page */
 .tabs { position: sticky; top: 0; z-index: 5; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; background: var(--bg); padding: 6px 0; margin: -6px 0; border-bottom: 1px solid var(--line); }
 .tabs::-webkit-scrollbar { display: none; }
@@ -501,6 +506,15 @@ function mergeItems(local, remote){
 }
 function serialize(list){ const sorted=[...list].sort((a,b)=>a.created.localeCompare(b.created)||a.id.localeCompare(b.id)); return JSON.stringify({ version:1, updated:new Date().toISOString(), items:sorted }, null, 1)+"\n"; }
 let syncing=false, syncAgain=false;
+// An open to-do with no repeat whose words say how often ("Vand planter hver weekend") gets that repeat, once: choosing
+// "No repeat" in the edit form sets `norepeat`, and the text is never read again. App wishes never repeat.
+const PACKWORDS=/\b(bring|pack|packing|medbring|tage med|pakke|pakkeliste)\b/i;   // "every workday bring a box" is a packing rule, not a to-do
+function repeatFromText(list){
+  let n=0; const ts=new Date().toISOString();
+  list.forEach(i=>{ if(i.done||i.repeat||i.norepeat||!BLOCKS.includes(i.block)||PACKWORDS.test(i.text)) return; const r=parseRepeat(i.text); if(!r) return;
+    i.repeat=r.repeat; if(r.on) i.on=r.on; i.due=firstOn(ymd(now()),r.on); i.updated=ts; n++; });
+  return n;
+}
 async function sync(reason){
   if(!configured()){ setStatus("not set up","warn"); return; }
   if(syncing){ syncAgain=true; return; } syncing=true; setStatus("syncing…","");
@@ -509,6 +523,7 @@ async function sync(reason){
       const remote = await ghGet("inbox.json");
       let remoteItems=[]; if(!remote.missing){ try{ remoteItems=JSON.parse(remote.text).items||[]; }catch(e){ remoteItems=[]; } }
       const merged = mergeItems(items, remoteItems);
+      repeatFromText(merged);   // older items whose words say how often (captured before repeats existed, 21 Nov)
       const changed = serialize(merged) !== (remote.missing ? "" : serialize(remoteItems));
       items = merged;
       if(changed || remote.missing){
@@ -581,15 +596,29 @@ function parseEvent(text, ref){
   title=title?title[0].toUpperCase()+title.slice(1):"Event";
   return { date:ymd(date), start, end, title, dated };
 }
-// ---- repeating to-dos: "hver weekend", "every other week", "hver anden søndag", "hver måned"
+// ---- repeating to-dos: "hver weekend", "every other week", "hver anden søndag", "hver måned", and since 26 Nov
+// "hver hverdag / every workday", "hver dag / daily", "every monday", "every other monday". The model: `repeat` is the
+// interval in days, `on` (optional) the weekdays it may fall on ("mon".."sun"). Weekend means once, from Saturday.
 const WD = "mandag|tirsdag|onsdag|torsdag|fredag|lørdag|søndag|monday|tuesday|wednesday|thursday|friday|saturday|sunday";
+const WDKEY = { mandag:"mon", monday:"mon", tirsdag:"tue", tuesday:"tue", onsdag:"wed", wednesday:"wed", torsdag:"thu", thursday:"thu", fredag:"fri", friday:"fri", lørdag:"sat", saturday:"sat", søndag:"sun", sunday:"sun", weekend:"sat" };
+const WEEKDAYS = ["sun","mon","tue","wed","thu","fri","sat"], WORKDAYS = ["mon","tue","wed","thu","fri"];
 function parseRepeat(text){
-  const t=String(text||"").toLowerCase();
-  if(new RegExp(`(hver|every)\\s+(anden|andet|other|2\\.?)\\s+(uge|week|weekend|${WD})`).test(t) || /every\s+2\s+weeks|biweekly|hver\s+14\.?\s+dag/.test(t)) return 14;
-  if(new RegExp(`(hver|every)\\s+(uge|week|weekend|${WD})`).test(t) || /\b(weekly|ugentlig)/.test(t)) return 7;
-  if(/(hver|every)\s+(måned|month)|\b(monthly|månedlig)/.test(t)) return 30;
+  const t=String(text||"").toLowerCase(); let m;
+  if(/(hver|alle|every|all)\s+(hverdag|hverdage|arbejdsdag|arbejdsdage|workday|workdays|weekday|weekdays|work\s+day)/.test(t)) return { repeat:1, on:WORKDAYS };
+  if(/(hver|every)\s+(dag|day)\b|\b(dagligt|daily)\b/.test(t)) return { repeat:1 };
+  if((m=t.match(new RegExp(`(hver|every)\\s+(anden|andet|other|2\\.?)\\s+(uge|weekend|week|${WD})`))) || /every\s+2\s+weeks|biweekly|hver\s+14\.?\s+dag/.test(t))
+    return { repeat:14, ...(m&&WDKEY[m[3]]?{ on:[WDKEY[m[3]]] }:{}) };
+  if((m=t.match(new RegExp(`(hver|every)\\s+(uge|weekend|week|${WD})`))) || /\b(weekly|ugentlig)/.test(t))
+    return { repeat:7, ...(m&&WDKEY[m[2]]?{ on:[WDKEY[m[2]]] }:{}) };
+  if(/(hver|every)\s+(måned|month)|\b(monthly|månedlig)/.test(t)) return { repeat:30 };
   return null;
 }
+// the first date on or after `from` that the repeat may fall on
+function firstOn(from, on){ if(!on||!on.length) return from; let d=from; for(let k=0;k<8;k++){ if(on.includes(WEEKDAYS[new Date(d+"T12:00").getDay()])) return d; d=addDays(d,1); } return from; }
+// the next date after a done on `from`: a week (or two) on, to its weekday; every workday: the next workday
+function nextDue(from, repeat, on){ if(!on||!on.length) return addDays(from, repeat); return firstOn(addDays(from, repeat>=7 ? repeat-6 : 1), on); }
+const repeatLabel = i => !i.repeat ? "" : i.repeat===1 ? (i.on&&i.on.length===5?"every workday":"every day")
+  : (i.repeat===7?"every ":i.repeat===14?"every other ":`every ${i.repeat} days`) + (i.repeat===7||i.repeat===14 ? (i.on&&i.on.length===1 ? ({mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",fri:"Friday",sat:"weekend",sun:"Sunday"})[i.on[0]] : "week") : "");
 const addDays = (date, n) => { const d=new Date(date+"T12:00"); d.setDate(d.getDate()+n); return ymd(d); };
 const daysSince = date => Math.round((new Date(ymd(now())+"T12:00")-new Date(date+"T12:00"))/86400000);
 const isDue = i => !i.done && (!i.due || i.due<=ymd(now()));   // a repeating item waits until its next date
@@ -1014,10 +1043,12 @@ function render(){
   const row=(it,m)=>`<li class="item${it.done?" done":""}${pending(it)?" pending":""}">
       <button class="box" aria-label="Mark done" data-id="${esc(it.id)}"><svg viewBox="0 0 12 12" fill="none" stroke-width="2"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg></button>
       <button class="txt" data-edit="${esc(it.id)}" aria-label="Edit">${esc(it.text.replace(/\s*\(\d+\s*m\)/i,""))}<small>${it.created===today?"today":new Date(it.created).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</small></button>
-      <span class="min">${m} m</span></li>${it.repeat&&it.due&&!it.done&&daysSince(it.due)>=2*it.repeat?`<li class="edit rc"><span>Not done for ${Math.round(daysSince(it.due)/7)} weeks. Still worth it?</span>
+      <span class="min">${it.repeat?`<span class="rep">${esc(repeatLabel(it))}${it.due&&it.due>ymd(now())?` · ${esc(evLabel({date:it.due}))}`:""}</span> `:""}${m} m</span></li>${it.repeat&&it.due&&!it.done&&daysSince(it.due)>=Math.max(7,2*it.repeat)?`<li class="edit rc"><span>Not done for ${daysSince(it.due)<14?daysSince(it.due)+" days":Math.round(daysSince(it.due)/7)+" weeks"}. Still worth it?</span>
       <span class="acts">${[["keep","Keep"],["less","Less often"],["drop","Drop"]].map(([v,l])=>`<button class="pick" data-rc="${esc(it.id)}" data-v="${v}">${l}</button>`).join("")}</span></li>`:""}${editing===it.id?`<li class="edit"><input id="e-text" value="${esc(it.text)}" aria-label="Text">
       <select id="e-block" aria-label="Block">${BLOCKS.concat("app").map(b=>`<option value="${b}"${it.block===b?" selected":""}>${b==="app"?"App wish":label(b)}</option>`).join("")}</select>
-      <select id="e-repeat" aria-label="Repeat">${[["","No repeat"],["7","Every week"],["14","Every other week"],["30","Every month"]].map(([v,l])=>`<option value="${v}"${String(it.repeat||"")===v?" selected":""}>${l}</option>`).join("")}</select>
+      <select id="e-repeat" aria-label="Repeat">${(()=>{ const cur=!it.repeat?"":it.repeat===1?(it.on&&it.on.length===5?"wd":"1"):String(it.repeat);
+        return [["","No repeat"],["1","Every day"],["wd","Every workday"],["7","Every week"],["14","Every other week"],["30","Every month"]].map(([v,l])=>`<option value="${v}"${cur===v?" selected":""}>${l}</option>`).join(""); })()}</select>
+      <select id="e-on" aria-label="On">${[["","any day"],["mon","Monday"],["tue","Tuesday"],["wed","Wednesday"],["thu","Thursday"],["fri","Friday"],["sat","weekend"],["sun","Sunday"]].map(([v,l])=>`<option value="${v}"${(it.on&&it.on.length===1?it.on[0]:"")===v?" selected":""}>${l}</option>`).join("")}</select>
       <span class="acts"><button class="pick" id="e-save">Save</button><button class="pick" id="e-cancel">Cancel</button></span></li>`:""}`;
   BLOCKS.forEach(b=>{
     const open=items.filter(i=>i.block===b&&isDue(i)).sort((x,y)=>x.created.localeCompare(y.created)||x.id.localeCompare(y.id));
@@ -1040,10 +1071,19 @@ function render(){
   document.getElementById("i-count").textContent=`${nextCount} planned · ${items.filter(i=>i.done&&i.done.slice(0,10)===today).length} done today`;
   document.getElementById("b-count").textContent=backCount?`${backCount} waiting`:"empty";
   if(!backCount) bl.innerHTML='<div class="empty">Everything open fits in the next blocks.</div>';
+  // Repeating items that are not due yet (since 26 Nov): listed at the end of the backlog with their rhythm and next date,
+  // so he can see and edit them; before, an item waiting for its date was nowhere in the app.
+  const later=items.filter(i=>BLOCKS.includes(i.block)&&!i.done&&i.repeat&&i.due&&i.due>today).sort((x,y)=>x.due.localeCompare(y.due));
+  if(later.length){ const sec=document.createElement("section"); sec.className="group later";
+    sec.innerHTML=`<div class="gh"><span class="name">Repeating, not due yet</span><span class="when">${later.length}</span></div><ul class="items">${later.map(it=>row(it,minutesOf(it.text))).join("")}</ul>`;
+    bl.appendChild(sec); }
   bl.hidden=!backlogOpen; document.getElementById("b-toggle").setAttribute("aria-expanded",String(backlogOpen));
   // App wishes: what he wants changed in Overblik itself. Read by each session; never planned into a block.
   const ap=document.getElementById("apps"), wishes=items.filter(i=>i.block==="app"&&(!i.done||i.done.slice(0,10)===today)).sort((x,y)=>x.created.localeCompare(y.created));
-  ap.innerHTML=wishes.length?`<section class="group app"><ul class="items">${wishes.map(it=>row(it,minutesOf(it.text))).join("")}</ul></section>`:'<div class="empty">No wishes open. Tap App when you capture one.</div>';
+  // Built wishes (since 26 Nov): ticking a wish marks it built; it stays on record under "Built", newest first, with its date.
+  const built=items.filter(i=>i.block==="app"&&i.done&&i.done.slice(0,10)!==today).sort((x,y)=>y.done.localeCompare(x.done));
+  ap.innerHTML=(wishes.length?`<section class="group app"><ul class="items">${wishes.map(it=>row(it,minutesOf(it.text))).join("")}</ul></section>`:'<div class="empty">No wishes open. Tap App when you capture one.</div>')
+    + (built.length?`<details class="built"><summary>Built (${built.length})</summary><ul>${built.map(i=>`<li><span class="mono">${esc(i.done.slice(0,10))}</span> ${esc(i.text)}</li>`).join("")}</ul></details>`:"");
   ap.hidden=!appsOpen; document.getElementById("a-toggle").setAttribute("aria-expanded",String(appsOpen));
   document.getElementById("a-count").textContent=`${items.filter(i=>i.block==="app"&&!i.done).length} open`;
 
@@ -1188,17 +1228,25 @@ document.querySelector(".wrap").addEventListener("click",e=>{
     it.updated=ts; meta.dirty=true; saveLocal(); render(); sync(rc.dataset.v==="drop"?"done":"edit"); return;
   }
   if(e.target.closest("#e-save")){
-    const it=items.find(i=>i.id===editing), text=document.getElementById("e-text").value.trim(), b=document.getElementById("e-block").value, r=+document.getElementById("e-repeat").value||null;
+    const it=items.find(i=>i.id===editing), text=document.getElementById("e-text").value.trim(), b=document.getElementById("e-block").value, rv=document.getElementById("e-repeat").value, ov=document.getElementById("e-on").value;
+    const r=rv==="wd"?1:(+rv||null), on=rv==="wd"?WORKDAYS:((r===7||r===14)&&ov?[ov]:null), same=(x,y)=>JSON.stringify(x||null)===JSON.stringify(y||null);
     editing=null;
-    if(it && text && (text!==it.text || b!==it.block || r!==(it.repeat||null))){
+    if(it && text && (text!==it.text || b!==it.block || r!==(it.repeat||null) || !same(on,it.on))){
       it.text=text; it.block=b;
-      if(r!==(it.repeat||null)){ if(r){ it.repeat=r; it.due=it.due||ymd(now()); } else { delete it.repeat; delete it.due; } }
+      if(r!==(it.repeat||null) || !same(on,it.on)){ if(r){ it.repeat=r; if(on) it.on=on; else delete it.on; it.due=firstOn(it.due&&it.due>ymd(now())?it.due:ymd(now()),on); delete it.norepeat; } else { delete it.repeat; delete it.due; delete it.on; it.norepeat=true; } }
       it.updated=new Date().toISOString(); meta.dirty=true; saveLocal(); render(); sync("edit"); }
     else render();
   }
 });
 const showBlock = b => { block=b; document.querySelectorAll(".capture .chip").forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.block===b))); renderEvents(); };
-document.getElementById("cap").addEventListener("input",e=>{ if(!chipByHand){ const ev=parseEvent(e.target.value); showBlock(ev&&ev.dated?"event":guessBlock(e.target.value)); } renderEvents(); });
+document.getElementById("cap").addEventListener("input",e=>{ if(!chipByHand){ const ev=parseEvent(e.target.value); showBlock(ev&&ev.dated?"event":guessBlock(e.target.value)); } renderEvents(); requestAnimationFrame(keepCap); });
+// Wish of 26 Nov: on the iPhone the page jumped to the bottom while he typed. When the keyboard opens, when he types and the
+// page changes height, the box is brought back into the visible part of the screen. (Holding redraws while it has focus was
+// tried and dropped: the box keeps focus after a capture, so the app would stop redrawing.)
+function keepCap(){ const c=document.getElementById("cap"); if(document.activeElement!==c) return; const r=c.getBoundingClientRect(), vv=window.visualViewport;
+  const top=vv?vv.offsetTop:0, h=vv?vv.height:window.innerHeight; if(r.top<top+4||r.bottom>top+h-4) document.getElementById("cap-form").scrollIntoView({block:"start"}); }
+if(window.visualViewport) visualViewport.addEventListener("resize",keepCap);   // not on scroll: he may scroll on purpose
+document.getElementById("cap").addEventListener("focus",()=>setTimeout(keepCap,350));
 document.querySelectorAll(".capture .chip").forEach(c=>c.addEventListener("click",()=>{ chipByHand=true; showBlock(c.dataset.block); document.getElementById("cap").focus(); }));
 document.getElementById("cap-form").addEventListener("submit",e=>{
   e.preventDefault(); const inp=document.getElementById("cap"); const text=inp.value.trim(); if(!text) return;
@@ -1211,7 +1259,7 @@ document.getElementById("cap-form").addEventListener("submit",e=>{
   }
   if(block==="idea"){ tbAddIdea(text, "Captured in Overblik"); inp.value=""; chipByHand=false; showBlock("praktisk"); render(); inp.focus(); tbSync(); return; }
   const every=parseRepeat(text);
-  items.push({ id:uid(), text, block, created:ymd(now()), updated:ts, done:null, ...(every?{ repeat:every, due:ymd(now()) }:{}) }); meta.dirty=true; saveLocal(); inp.value=""; render();
+  items.push({ id:uid(), text, block, created:ymd(now()), updated:ts, done:null, ...(every?{ repeat:every.repeat, ...(every.on?{on:every.on}:{}), due:firstOn(ymd(now()),every.on) }:{}) }); meta.dirty=true; saveLocal(); inp.value=""; render();
   chipByHand=false; showBlock("praktisk"); inp.focus();
   sync("add");
 });
@@ -1221,7 +1269,7 @@ document.querySelector(".wrap").addEventListener("click",e=>{
   const ts=new Date().toISOString(), today=ymd(now());
   if(it.repeat && !it.done){
     if(it.last && it.last.slice(0,10)===today && it.prevDue!==undefined){ it.due=it.prevDue; it.last=it.prevLast||null; it.count=Math.max(0,(it.count||1)-1); delete it.prevDue; delete it.prevLast; }
-    else { it.prevDue=it.due||today; it.prevLast=it.last||null; it.last=ts; it.count=(it.count||0)+1; it.due=addDays(today,it.repeat); }
+    else { it.prevDue=it.due||today; it.prevLast=it.last||null; it.last=ts; it.count=(it.count||0)+1; it.due=nextDue(today,it.repeat,it.on); }
   } else it.done = it.done ? null : ts;
   it.updated=ts; meta.dirty=true; saveLocal();
   const d=todayCard||templateDay(now()), nm=now().getHours()*60+now().getMinutes();   // an agenda block that has started logs its items
