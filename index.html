@@ -199,6 +199,13 @@ footer button { text-decoration: underline; text-underline-offset: 2px; }
 @media (prefers-reduced-motion: no-preference) { .item .box, .chip { transition: background .15s, border-color .15s; } }
 #ev-list:empty, .evrow:has(select[hidden]):has(#ev-prev:empty) { display: none; }
 span.rep { font-size: 10.5px; color: var(--fg-3); margin-right: 4px; }
+#pk-sec .pk-form { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+#pk-sec .pk-form input { grid-column: 1 / -1; }
+#pk-sec .pk-form select, #pk-sec .pk-form input { font-size: 16px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--fg); }
+#pk-sec .pk-form button { grid-column: 1 / -1; padding: 9px; border-radius: 8px; background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.pk-list { list-style: none; padding: 0; margin: 4px 0 0; display: grid; gap: 6px; font-size: 14px; }
+.pk-list li { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.pk-list .w { color: var(--fg-3); font-size: 12.5px; }
 details.built { margin-top: 10px; font-size: 13px; color: var(--fg-2); }
 details.built summary { cursor: pointer; font: 500 11px/1.4 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
 details.built ul { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 6px; }
@@ -305,6 +312,7 @@ details.built .mono { color: var(--fg-3); font-size: 11.5px; margin-right: 4px; 
     <div class="fyi" id="tm-fyi"></div>
     <ul class="notes" id="tm-notes"></ul>
     <div class="pack" id="tm-pack"></div>
+    <div class="src"><a href="#todos" id="pk-go">Packing rules</a>: things to add on certain days.</div>
     <div class="props" id="tm-props"></div>
     <div class="src" id="tm-src"></div>
   </section>
@@ -334,6 +342,22 @@ details.built .mono { color: var(--fg-3); font-size: 11.5px; margin-right: 4px; 
   <section class="sec backlog" aria-label="App wishes">
     <div class="head"><h2><button class="fold" id="a-toggle" aria-expanded="false" aria-controls="apps">App wishes</button></h2><span class="count mono" id="a-count"></span></div>
     <div id="apps" hidden></div>
+  </section>
+
+  <section class="sec backlog" id="pk-sec" aria-label="Packing rules">
+    <div class="head"><h2><button class="fold" id="pk-toggle" aria-expanded="false" aria-controls="pk">Packing rules</button></h2><span class="count mono" id="pk-count"></span></div>
+    <div id="pk" hidden>
+      <ul class="pk-list" id="pk-list"></ul>
+      <form id="pk-form" class="pk-form">
+        <input id="pk-item" placeholder="What to bring, like sand socks" aria-label="Item" autocomplete="off">
+        <select id="pk-for" aria-label="For"></select>
+        <select id="pk-when" aria-label="When"><option value="">every time</option><option value="7">every week on</option><option value="14">every other week on</option></select>
+        <select id="pk-on" aria-label="Weekday" hidden></select>
+        <select id="pk-start" aria-label="Starting" hidden></select>
+        <button class="btn primary" type="submit">Add rule</button>
+      </form>
+      <div class="src">Added to the packing lists from the next evening plan. Rules for work or every day out go on the daily list.</div>
+    </div>
   </section>
 
   </div>
@@ -470,6 +494,7 @@ let choices = ls.get(LS.choices, {options:{},dirty:false});   // options picked 
 let beachCard = null;   // beach.json from the hub, never stored on the device
 let logBook = ls.get(LS.log, {days:{},dirty:false});        // block-by-block log: {"YYYY-MM-DD": {"HH:MM|name": entry}}; written to log.json
 let accepts = ls.get(LS.accepts, {items:[],dirty:false});
+let packing = ls.get("overblik.packing", {rules:[],dirty:false});   // his packing rules; written to packing.json, read by the evening plan (26 Nov)
 let events = ls.get("overblik.events", {items:[],dirty:false});   // events he captured; written to events.json, created in the calendar by the Mac job      // proposals accepted with a tap; written to accepts.json, applied by the Mac job
 let packTicks = ls.get(LS.pack, {});                           // {"YYYY-MM-DD": {"for|item": true}}: this device only, never written to the repo
 const tomorrowOf = d => { const x=new Date(d); x.setDate(x.getDate()+1); return x; };
@@ -536,6 +561,7 @@ async function sync(reason){
     try{ await syncChoices(); }catch(e){ console.warn(e); }   // a pick that could not be written stays queued; the inbox sync still counts
     try{ await syncAccepts(); }catch(e){ console.warn(e); }
     try{ await syncEvents(); }catch(e){ console.warn(e); }
+    try{ await syncPacking(); }catch(e){ console.warn(e); }
     try{ await syncLog(); }catch(e){ console.warn(e); }
     tbSync();
     await loadCards();
@@ -998,6 +1024,39 @@ function shortConflicts(list){
   return [...by].map(([k,v])=>`${v.join(", ")} ${v.length>1?"clash":"clashes"} with ${k}`).concat(rest);
 }
 const shortWhy = w => String(w||"").replace(/^overlaps /,"clashes with ").replace(/ \(\d\d:\d\d to \d\d:\d\d\)/g,"");
+// ---- packing rules (26 Nov): {id, item, for, on?, every?, from?, created, updated, removed?}; "for" is an activity key from
+// template.json's packing lists, "Work", or "Every day" (every day he leaves home). The planner applies them (packing_rules_for).
+let pkOpen=ls.get("overblik.pkOpen",false);
+const DAYNAME={mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",fri:"Friday",sat:"Saturday",sun:"Sunday"};
+function pkWhen(r){ return !r.on ? "every time" : `${r.every===14?"every other":"every"} ${DAYNAME[r.on[0]]}`; }
+function pkNext(r){ let d=ymd(now()); for(let k=0;k<30;k++){ const wd=WEEKDAYS[new Date(d+"T12:00").getDay()];
+  if(!r.on||r.on.includes(wd)){ if(!(r.every&&r.from) || ((new Date(d+"T12:00")-new Date(r.from+"T12:00"))/86400000)%r.every===0) return d; } d=addDays(d,1); } return null; }
+function renderPacking(){
+  const keys=[["Every day","Every day out"],["Work","Work"]].concat(Object.keys((template&&template.packing)||{}).filter(k=>k!=="Work").map(k=>[k,k]));
+  const sel=document.getElementById("pk-for"); if(sel.options.length!==keys.length) sel.innerHTML=keys.map(([v,l])=>`<option value="${esc(v)}">${esc(l)}</option>`).join("");
+  const on=document.getElementById("pk-on"); if(!on.options.length) on.innerHTML=Object.entries(DAYNAME).map(([v,l])=>`<option value="${v}">${l}</option>`).join("");
+  const when=document.getElementById("pk-when").value, st=document.getElementById("pk-start");
+  on.hidden=!when; st.hidden=when!=="14";
+  if(when==="14"){ const first=firstOn(ymd(now()),[on.value]), keep=st.value; st.innerHTML=[first,addDays(first,7)].map(d=>`<option value="${d}">first ${esc(evLabel({date:d}))}</option>`).join(""); if([...st.options].some(o=>o.value===keep)) st.value=keep; }
+  const live=(packing.rules||[]).filter(r=>!r.removed);
+  document.getElementById("pk-list").innerHTML=live.length?live.map(r=>{ const nx=pkNext(r);
+    return `<li><span>${esc(r.item)} <span class="w">· ${esc(r.for==="Every day"?"every day out":r.for)} · ${esc(pkWhen(r))}${nx?` · next ${esc(evLabel({date:nx}))}`:""}</span></span><button class="pick" type="button" data-pkdel="${esc(r.id)}">Remove</button></li>`; }).join(""):'<li class="w">No rules yet.</li>';
+  document.getElementById("pk-count").textContent=live.length?`${live.length}`:"";
+  document.getElementById("pk").hidden=!pkOpen; document.getElementById("pk-toggle").setAttribute("aria-expanded",String(pkOpen));
+}
+async function syncPacking(){
+  // packing.json: this app is its only writer, on every device; merged by id, the newest `updated` wins.
+  const remote=await ghGet("packing.json"); let rr=[]; if(!remote.missing){ try{ rr=JSON.parse(remote.text).rules||[]; }catch(e){} }
+  const merge=(a,b)=>{ const m={}; b.concat(a).forEach(i=>{ const o=m[i.id]; if(!o||(i.updated||"")>(o.updated||"")) m[i.id]=i; }); return Object.values(m); };
+  if(!packing.dirty){ packing={rules:rr,dirty:false}; ls.set("overblik.packing",packing); return; }
+  let list=merge(packing.rules,rr);
+  for(let attempt=0, sha=remote.missing?null:remote.sha; attempt<3; attempt++){
+    const put=await ghPut("packing.json", JSON.stringify({updated:new Date().toISOString(),rules:list},null,1)+"\n", sha, "overblik: packing rule");
+    if(!put.conflict){ packing={rules:list,dirty:false}; ls.set("overblik.packing",packing); return; }
+    const again=await ghGet("packing.json"); sha=again.missing?null:again.sha; let ai=[]; if(!again.missing){ try{ ai=JSON.parse(again.text).rules||[]; }catch(e){} } list=merge(packing.rules,ai);
+  }
+  throw new Error("packing.json: could not write");
+}
 // Hours per area from the weekly lines. The build week (W47) is shown but left out of the average: his decision of 22 Nov.
 const NOT_BASELINE=["2026-W47"];
 const AREAS=["Work","Training","Sport","S&M","Out","Praktisk","Hus","Fremtid","Tankebænken","Morning","Home"];
@@ -1091,6 +1150,7 @@ function render(){
   renderEvents();
   renderTb(n);
   renderWeek();
+  renderPacking();
   renderTabs();
 
   document.getElementById("f-note").textContent = configured()
@@ -1416,6 +1476,17 @@ document.querySelector(".wrap").addEventListener("click",ev=>{
 window.addEventListener("online",()=>sync("online"));
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden) sync("resume"); });
 document.getElementById("tabs").addEventListener("scroll",e=>e.currentTarget.classList.toggle("at-end", e.currentTarget.scrollLeft+e.currentTarget.clientWidth>=e.currentTarget.scrollWidth-2),{passive:true});
+document.getElementById("pk-toggle").addEventListener("click",()=>{ pkOpen=!pkOpen; ls.set("overblik.pkOpen",pkOpen); render(); });
+document.getElementById("pk-go").addEventListener("click",e=>{ e.preventDefault(); pkOpen=true; ls.set("overblik.pkOpen",true); showPage("todos"); document.getElementById("pk-sec").scrollIntoView({block:"start"}); });
+["pk-when","pk-on"].forEach(id=>document.getElementById(id).addEventListener("change",renderPacking));
+document.getElementById("pk-form").addEventListener("submit",e=>{ e.preventDefault();
+  const item=document.getElementById("pk-item").value.trim(); if(!item){ document.getElementById("pk-item").focus(); return; }
+  const when=document.getElementById("pk-when").value, wd=document.getElementById("pk-on").value, ts=new Date().toISOString();
+  const r={ id:uid(), item, for:document.getElementById("pk-for").value, created:ts, updated:ts };
+  if(when){ r.on=[wd]; if(when==="14"){ r.every=14; r.from=document.getElementById("pk-start").value||firstOn(ymd(now()),[wd]); } }
+  packing.rules.push(r); packing.dirty=true; ls.set("overblik.packing",packing); document.getElementById("pk-item").value=""; render(); sync("packing"); });
+document.querySelector(".wrap").addEventListener("click",e=>{ const b=e.target.closest("button[data-pkdel]"); if(!b) return;
+  const r=packing.rules.find(x=>x.id===b.dataset.pkdel); if(!r) return; r.removed=true; r.updated=new Date().toISOString(); packing.dirty=true; ls.set("overblik.packing",packing); render(); sync("packing"); });
 document.getElementById("tabs").addEventListener("click",e=>{ const b=e.target.closest("button[data-tab]"); if(b) showPage(b.dataset.tab); });
 window.addEventListener("hashchange",()=>{ const h=location.hash.slice(1); if(PAGES.includes(h)&&h!==page) showPage(h); });
 setInterval(render, 60000);

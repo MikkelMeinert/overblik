@@ -38,7 +38,7 @@ const STATE = { version: 1, appVersion: '1.1.1', stones: [], quarry: [],
   const results = []; let failed = 0;
   const check = async (name, fn) => {
     try { await fn(); results.push('ok    ' + name); }
-    catch (e) { failed++; results.push('FAIL  ' + name + '\n      ' + String(e.message).split('\n')[0]); }
+    catch (e) { failed++; results.push('FAIL  ' + name + '\n      ' + String(e.message).split('\n').slice(0,12).join(' ')); }
   };
   const repos = { 'overblik-data': { 'template.json': JSON.stringify(TEMPLATE), 'today.json': JSON.stringify(TODAY), 'tomorrow.json': JSON.stringify(TOMORROW),
       'shadow/weekly_log.jsonl': WEEKLY, 'inbox.json': JSON.stringify({ version: 1, items: [
@@ -144,6 +144,23 @@ const STATE = { version: 1, appVersion: '1.1.1', stones: [], quarry: [],
     assert.match(await page.textContent('#tb-r-list'), /Newspaper: 15 min/);
     assert.ok(!/Newspaper/.test(await page.textContent('#tb-lib')), 'not among the books');
     assert.ok(!/<optgroup[^>]*>[^]*Newspaper/.test(await page.innerHTML('#tb-r-book')), 'offered once, at the top, not again among the books');
+  });
+  await check('packing rules: added with a weekday and a starting week, listed with the next date, removed', async () => {
+    await page.click('#tabs [data-tab="todos"]');
+    if (await page.evaluate(() => document.getElementById('pk').hidden)) await page.click('#pk-toggle');
+    await page.fill('#pk-item', 'sand socks'); await page.selectOption('#pk-for', 'Every day');
+    await page.selectOption('#pk-when', '14'); await page.selectOption('#pk-on', 'mon');
+    assert.deepStrictEqual(await page.$$eval('#pk-start option', o => o.map(x => x.textContent)), ['first Mon 12 Jan', 'first Mon 19 Jan']);
+    await page.selectOption('#pk-start', '2026-01-19'); await page.click('#pk-form button'); await idle();
+    await page.fill('#pk-item', 'lunchbox'); await page.selectOption('#pk-for', 'Work'); await page.selectOption('#pk-when', ''); await page.click('#pk-form button'); await idle();
+    const rules = JSON.parse(repos['overblik-data']['packing.json']).rules;
+    assert.deepStrictEqual(rules.map(r => [r.item, r.for, (r.on || []).join(), r.every || 0, r.from || '']),
+      [['sand socks', 'Every day', 'mon', 14, '2026-01-19'], ['lunchbox', 'Work', '', 0, '']]);
+    assert.deepStrictEqual(await page.$$eval('#pk-list li > span', e => e.map(x => x.textContent)),
+      ['sand socks · every day out · every other Monday · next Mon 19 Jan', 'lunchbox · Work · every time · next Tue 6 Jan']);
+    await page.click('#pk-list [data-pkdel] >> nth=1'); await idle();
+    assert.ok(JSON.parse(repos['overblik-data']['packing.json']).rules.find(r => r.item === 'lunchbox').removed, 'removed is kept, so other devices learn it');
+    assert.strictEqual(await page.textContent('#pk-count'), '1');
   });
   await shot('4-tankebaenken');
   await check('no page errors', async () => assert.deepStrictEqual(errs, []));
