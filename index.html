@@ -206,6 +206,9 @@ span.rep { font-size: 10.5px; color: var(--fg-3); margin-right: 4px; }
 .pk-list { list-style: none; padding: 0; margin: 4px 0 0; display: grid; gap: 6px; font-size: 14px; }
 .pk-list li { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .pk-list .w { color: var(--fg-3); font-size: 12.5px; }
+li.load b { color: var(--warn); }
+.tl li.gap .name { font-weight: 500; color: var(--fg-2); }
+.tl li.gap .bar { background: repeating-linear-gradient(var(--line) 0 4px, transparent 4px 8px); }
 details.built { margin-top: 10px; font-size: 13px; color: var(--fg-2); }
 details.built summary { cursor: pointer; font: 500 11px/1.4 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
 details.built ul { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 6px; }
@@ -1085,7 +1088,7 @@ function render(){
   const planned = timeline(document.getElementById("tl"), day, ymd(n), nowMin);
   document.getElementById("t-sum").textContent = (day.events||[]).length ? `${Math.round(planned/60*10)/10} h in blocks` : "";
   document.getElementById("fyi").innerHTML = (day.info&&day.info.length)?`<b>FYI</b> ${day.info.map(esc).join(" · ")}`:"";
-  document.getElementById("t-notes").innerHTML = shortConflicts(day.conflicts).map(c=>`<li class="conf"><b>Conflict</b> ${esc(c)}</li>`).join("")
+  document.getElementById("t-notes").innerHTML = loadNotes(day) + shortConflicts(day.conflicts).map(c=>`<li class="conf"><b>Conflict</b> ${esc(c)}</li>`).join("")
     + (day.adjustments||[]).map(a=>`<li><b>Adjusted</b> ${esc(a)}</li>`).join("");
   document.getElementById("t-pack").innerHTML = packHTML(eveningToday);
   renderTomorrow(n);
@@ -1185,14 +1188,22 @@ function renderBeach(n){
 function timeline(tl, day, date, nowMin){
   // One day's rows. nowMin is null for a day that is not today (nothing is past, nothing is "now"). Returns minutes outside work.
   tl.innerHTML=""; let planned=0;
-  const rows=(day.events||[]).map(e=>({e})).concat((day.options||[]).map(e=>({e,opt:true}))).sort((x,y)=>x.e.start.localeCompare(y.e.start)||x.e.end.localeCompare(y.e.end));
-  rows.forEach(({e,opt})=>{
+  const gaps=(day.gaps||[]).map(g=>({e:{start:g.start,end:g.end,name:g.text,kind:"gap"},gap:g}));
+  const rows=(day.events||[]).map(e=>({e})).concat((day.options||[]).map(e=>({e,opt:true}))).concat(gaps).sort((x,y)=>x.e.start.localeCompare(y.e.start)||x.e.end.localeCompare(y.e.end));
+  rows.forEach(({e,opt,gap})=>{
+    if(gap){   // free time at home with one quick to-do in it (26 Nov): a suggestion, never a block
+      const it=items.find(i=>i.id===gap.id); if(!it) return; const li=document.createElement("li");
+      const past=nowMin!=null&&toMin(gap.end)<=nowMin; li.className="gap"+(past?" past":""); li.style.setProperty("--c","var(--line)");
+      li.innerHTML=`<span class="t">${esc(gap.start)}<br>${esc(gap.end)}</span><span class="bar"></span><div class="body split"><div><div class="name">${esc(gap.text)}</div><div class="meta">free at home · a quick one, ${gap.minutes} m, if you feel like it</div></div><button class="pick" type="button" data-id="${esc(it.id)}" aria-pressed="${!!it.done}">${it.done?"Done":"Do it"}</button></div>`;
+      tl.appendChild(li); return; }
     const li=document.createElement("li"); const s=toMin(e.start), en=toMin(e.end), key=date+"|"+e.name, picked=choices.options[key]==="yes";
     const colour = e.kind==="block" ? (BLOCKS.includes(e.block)?e.block:"praktisk") : e.kind==="sport"||e.kind==="body" ? "body" : e.kind==="work" ? "work" : "quiet";
     li.className=[e.kind==="work"?"work":"", opt&&!picked?"opt":"", nowMin==null?"":en<=nowMin?"past":(s<=nowMin&&nowMin<en?"now":"")].filter(Boolean).join(" ");
     li.style.setProperty("--c",`var(--${opt?"body":colour})`);
     if(e.kind!=="work" && !opt) planned+=en-s;
-    const btn = (opt||picked) ? `<button class="pick" type="button" data-opt="${esc(key)}" aria-pressed="${picked}">${picked?"Going":"I'm going"}</button>` : "";
+    const pmOn = e.pm && accepts.items.some(x=>x.id===pmId(e,date));
+    const btn = (opt||picked) ? `<button class="pick" type="button" data-opt="${esc(key)}" aria-pressed="${picked}">${picked?"Going":"I'm going"}</button>`
+      : (e.pm && (nowMin==null || s>nowMin-30)) ? `<button class="pick" type="button" data-pm="${esc(date+"|"+e.start+"|"+e.name)}" aria-pressed="${pmOn}">${pmOn?"Moving to "+esc(e.pm.to.start):"Afternoon "+esc(e.pm.to.start)}</button>` : "";
     const meta = opt ? (picked ? "picked: the plan follows at the next planner run" : "option · blocks nothing until you pick it") : (e.source||"");
     let log = (nowMin!=null && !opt && s<=nowMin) ? logHTML(date,e) : "";
     if(nowMin!=null && !opt && /^tankebænken/i.test(e.name)) log = `<div class="lg">${["journal","read","ideas"].map(t=>`<button type="button" data-tbgo="${t}">${t==="journal"?"Journal":t==="read"?"Read":"Work an idea"}</button>`).join("")}</div>` + log;   // a block can be logged once it has started
@@ -1208,6 +1219,11 @@ function packHTML(card){
   return `<div class="pk-n">${done} of ${all.length} packed</div>` + lists.map(p=>`<div><div class="pk-h">${esc(p.for)}</div><div class="ticks">${
     p.items.map(i=>{ const k=p.for+"|"+i; return `<button class="tick" type="button" data-pack="${esc(card.date+"/"+k)}" aria-pressed="${!!t[k]}">${esc(i)}</button>`; }).join("")}</div></div>`).join("");
 }
+// Day load (26 Nov): one line when the day is heavy, one when the evening before ended late.
+function loadNotes(card){ const l=card&&card.load; if(!l) return "";
+  return (l.heavy?`<li class="load"><b>Heavy day</b> ${esc(l.why)}. To-do blocks after ${esc(l.from||"")} are offered on lighter days.</li>`:"")
+    + (l.after_late?`<li class="load"><b>Late evening</b> It ended ${esc(l.after_late)}: an early workout is offered in the afternoon.</li>`:""); }
+const pmId=(e,date)=>`pm|${date}|${e.pm.uid}`;
 const acceptId=(c,p)=>`${c.plan_id}|${p.what}|${p.from?p.from.start:""}`;
 function renderTomorrow(n){
   const sec=document.getElementById("tm-sec"), c=tomorrowCard; sec.hidden=!c; if(!c) return;
@@ -1220,7 +1236,7 @@ function renderTomorrow(n){
   const notes=[];
   if(away.length) notes.push(`<li><b>Away</b> ${away.map(a=>`${esc(a.from)} to ${esc(a.to)} (${a.for.map(esc).join(", ")})`).join(", home, ")}</li>`);
   (c.adjustments||[]).filter(a=>!movedNames.some(m=>a.startsWith(m+" "))).forEach(a=>notes.push(`<li><b>Adjusted</b> ${esc(a)}</li>`));
-  document.getElementById("tm-notes").innerHTML=notes.join("");
+  document.getElementById("tm-notes").innerHTML=loadNotes(c)+notes.join("");
   document.getElementById("tm-pack").innerHTML=packHTML(c);
   // proposals: short cards. The first slot is the suggestion; "Accept suggested" takes the first slot of every card in one tap,
   // and the Mac job moves them at its next run. Dragging in the calendar still works.
@@ -1354,6 +1370,14 @@ document.querySelector(".wrap").addEventListener("click",e=>{   // pick or drop 
   const btn=e.target.closest("button[data-opt]"); if(!btn) return;
   const k=btn.dataset.opt; if(choices.options[k]) delete choices.options[k]; else choices.options[k]="yes";
   choices.dirty=true; ls.set(LS.choices,choices); render(); sync("choice");
+});
+document.querySelector(".wrap").addEventListener("click",ev=>{   // a morning workout to the afternoon (his wish of 26 Nov); again takes it back
+  const b=ev.target.closest("button[data-pm]"); if(!b) return; const [date,start,...nm]=b.dataset.pm.split("|"), name=nm.join("|");
+  const card=[todayCard,tomorrowCard].find(c=>c&&c.date===date); const e=card&&(card.events||[]).find(x=>x.start===start&&x.name===name); if(!e||!e.pm) return;
+  const id=pmId(e,date), i=accepts.items.findIndex(x=>x.id===id);
+  if(i>=0) accepts.items.splice(i,1);
+  else accepts.items.push({ id, plan_id:"pm", calendar:e.pm.calendar, uid:e.pm.uid, title:e.name, date, from:e.pm.from, to:e.pm.to, at:new Date().toISOString() });
+  accepts.dirty=true; ls.set(LS.accepts,accepts); render(); sync("accept");
 });
 document.querySelector(".wrap").addEventListener("click",e=>{   // accept the suggested (first) slot of every open proposal in one tap
   if(!e.target.closest("#acc-all")||!tomorrowCard) return; const c=tomorrowCard, at=new Date().toISOString();

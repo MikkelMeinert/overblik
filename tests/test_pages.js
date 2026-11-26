@@ -14,10 +14,13 @@ const TODAY = { date: '2026-01-06', week: 'A', generated: '2026-01-06T04:47:00+0
   events: [ { start: '10:00', end: '21:00', name: 'Visit', kind: 'quiet', source: 'Transport' },
             { start: '20:40', end: '21:30', name: 'Tankebænken', kind: 'quiet', source: 'Hjem' } ],
   conflicts: [ 'Praktisk 10:00 to 11:00 overlaps Visit (10:00 to 21:00)', 'Hus 11:00 to 12:30 overlaps Visit (10:00 to 21:00)',
-               'Gym 07:00 to 07:45 overlaps a work meeting (07:30 to 08:00)', 'Work meeting 18:00 to 18:30 is outside 08:00 to 16:00' ] };
+               'Gym 07:00 to 07:45 overlaps a work meeting (07:30 to 08:00)', 'Work meeting 18:00 to 18:30 is outside 08:00 to 16:00' ],
+  load: { heavy: true, sessions: 2, why: 'Padel 07:00, Squash 16:30', from: '07:00', late_end: null, after_late: '22:15' },
+  gaps: [ { start: '21:00', end: '21:40', id: 'a1', text: 'Ring til banken', minutes: 10 } ] };
 const slot = (date, start, end, label) => ({ date, start, end, label });
 const TOMORROW = { date: '2026-01-07', week: 'A', generated: '2026-01-06T18:30:00+01:00', plan_id: '2026-01-07@p', info: [],
-  events: [ { start: '07:00', end: '07:45', name: 'Gym', kind: 'body', source: 'Transport' } ],
+  events: [ { start: '07:00', end: '07:45', name: 'Gym', kind: 'body', source: 'Transport',
+              pm: { calendar: 'Transport', uid: 'g7', date: '2026-01-07', from: { start: '07:00', end: '07:45' }, to: { date: '2026-01-07', start: '16:00', end: '16:45' } } } ],
   proposals: [
     { what: 'Fremtid', from: { start: '09:00', end: '10:30' }, why: 'overlaps Dentist (09:00 to 10:00)', action: 'moved', slots: [slot('2026-01-07', '11:00', '12:30', 'Tomorrow 11:00 to 12:30')] },
     { what: 'Gym', from: { start: '17:00', end: '18:00' }, why: 'overlaps Dinner (17:00 to 20:00)', action: 'move', calendar: 'Transport', uid: 'g1', date: '2026-01-07',
@@ -82,6 +85,13 @@ const STATE = { version: 1, appVersion: '1.1.1', stones: [], quarry: [],
     assert.deepStrictEqual(await page.$$eval('#t-notes .conf', els => els.map(e => e.textContent)), [
       'Conflict Praktisk 10:00, Hus 11:00 clash with Visit', 'Conflict Gym 07:00 clashes with a work meeting', 'Conflict Work meeting 18:00 to 18:30 is outside 08:00 to 16:00']);
   });
+  await check('day load: a heavy-day line, a late-evening line, and a quick to-do in free time at home', async () => {
+    const notes = await page.$$eval('#t-notes li.load', els => els.map(e => e.textContent));
+    assert.deepStrictEqual(notes, ['Heavy day Padel 07:00, Squash 16:30. To-do blocks after 07:00 are offered on lighter days.',
+      'Late evening It ended 22:15: an early workout is offered in the afternoon.']);
+    const gap = await page.$eval('#tl li.gap', e => e.innerText.replace(/\s+/g, ' ').trim());
+    assert.match(gap, /^21:00 21:40 Ring til banken free at home · a quick one, 10 m, if you feel like it Do it$/);
+  });
   await check('badges: proposals waiting for him, and open to-dos', async () => {
     assert.strictEqual(await page.textContent('#tab-tm-n'), '3', 'two to move and one with no room; what the planner moved is not counted');
     assert.strictEqual(await page.textContent('#tab-td-n'), '1', 'an app wish is not a to-do');
@@ -104,6 +114,16 @@ const STATE = { version: 1, appVersion: '1.1.1', stones: [], quarry: [],
     assert.strictEqual(await page.textContent('#acc-all'), 'Accept suggested (2)');
   });
   await shot('2-tomorrow');
+  await check('a morning workout has an Afternoon button; a tap asks the calendar writer to move it, a second takes it back', async () => {
+    const b = '#tm-tl button[data-pm]';
+    assert.strictEqual(await page.textContent(b), 'Afternoon 16:00');
+    await page.click(b); await idle();
+    let acc = JSON.parse(repos['overblik-data']['accepts.json']).items.find(i => i.id === 'pm|2026-01-07|g7');
+    assert.deepStrictEqual([acc.calendar, acc.uid, acc.title, acc.date, acc.from.start, acc.to.start, acc.to.end], ['Transport', 'g7', 'Gym', '2026-01-07', '07:00', '16:00', '16:45']);
+    assert.strictEqual(await page.textContent(b), 'Moving to 16:00');
+    await page.click(b); await idle();
+    assert.ok(!JSON.parse(repos['overblik-data']['accepts.json']).items.some(i => i.id === 'pm|2026-01-07|g7'));
+  });
   await check('"Accept suggested" accepts the first slot of every open card in one tap', async () => {
     await page.click('#tm-props .prop.move button.slot >> nth=1'); await idle();   // he picked Gym's second slot himself; that one stays
     await page.click('#acc-all'); await idle();
