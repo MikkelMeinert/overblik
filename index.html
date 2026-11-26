@@ -211,6 +211,11 @@ li.load b { color: var(--warn); }
 .tl li.gap .bar { background: repeating-linear-gradient(var(--line) 0 4px, transparent 4px 8px); }
 li.edit.tri { font-size: 12.5px; color: var(--fg-2); }
 li.item.imp .txt::before { content: "!"; color: var(--warn); font-weight: 700; margin-right: 4px; }
+table.grp td:first-child { position: relative; }
+.gbar { display: block; height: 3px; background: var(--line); border-radius: 2px; margin-top: 3px; width: 70px; }
+.gbar i { display: block; height: 3px; background: var(--ok); border-radius: 2px; }
+input.tg { width: 46px; font: 16px/1 var(--font-mono); text-align: right; border: 1px solid var(--line); border-radius: 6px; padding: 3px 4px; background: var(--card); color: var(--fg); }
+.unrec { margin-top: 10px; }
 details.built { margin-top: 10px; font-size: 13px; color: var(--fg-2); }
 details.built summary { cursor: pointer; font: 500 11px/1.4 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
 details.built ul { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 6px; }
@@ -305,6 +310,7 @@ details.built .mono { color: var(--fg-3); font-size: 11.5px; margin-right: 4px; 
     <div class="fyi" id="fyi"></div>
     <ul class="notes" id="t-notes"></ul>
     <div class="pack" id="t-pack"></div>
+    <div class="unrec" id="t-unrec" hidden></div>
     <div class="src" id="t-src"></div>
   </section>
 
@@ -408,8 +414,9 @@ details.built .mono { color: var(--fg-3); font-size: 11.5px; margin-right: 4px; 
 
   <div class="page" data-page="week" hidden>
   <section class="sec" id="wk-sec" aria-label="Week">
-    <div class="head"><h2>Hours per area</h2><span class="count mono" id="wk-count"></span></div>
-    <div id="wk"></div>
+    <div class="head"><h2>Week</h2><span class="count mono" id="wk-count"></span></div>
+    <div id="wk-g"></div>
+    <details class="built" id="wk-areas"><summary>By area</summary><div id="wk"></div></details>
     <div class="src" id="wk-src"></div>
   </section>
   </div>
@@ -573,6 +580,7 @@ async function sync(reason){
     try{ await syncAccepts(); }catch(e){ console.warn(e); }
     try{ await syncEvents(); }catch(e){ console.warn(e); }
     try{ await syncPacking(); }catch(e){ console.warn(e); }
+    try{ await syncTargets(); }catch(e){ console.warn(e); }
     try{ await syncLog(); }catch(e){ console.warn(e); }
     tbSync();
     await loadCards();
@@ -1069,6 +1077,42 @@ async function syncPacking(){
   }
   throw new Error("packing.json: could not write");
 }
+// ---- groups (26 Nov): the six he chose; "Sport" and "Upkeep" are working names (rename here and in planner.py GROUPS).
+const GROUPS = { Work:["Work"], Sport:["Training","Sport"], People:["S&M","Out"], Upkeep:["Praktisk","Hus"], Mind:["Tankebænken","Morning","Fremtid"], Rest:["Home"] };
+let targets = ls.get("overblik.targets", {targets:{},dirty:false});   // hours per week he wants per group; written to targets.json
+function groupsOf(w){ if(w.groups) return w.groups; const o={}; Object.entries(GROUPS).forEach(([g,as])=>o[g]={ planned:null, done:Math.round(as.reduce((t,a)=>t+((w.hours||{})[a]||0),0)*10)/10 }); return o; }
+function renderGroups(){
+  const el=document.getElementById("wk-g"), rows=(weekly||[]).filter(w=>w.hours).slice(-6);
+  if(!rows.length){ el.innerHTML=""; return; }
+  const last=rows[rows.length-1], g=groupsOf(last), base=rows.filter(w=>!NOT_BASELINE.includes(w.week));
+  const avg=k=>base.length?base.reduce((t,w)=>t+(groupsOf(w)[k].done||0),0)/base.length:null, f=v=>v==null?"·":(Math.round(v*10)/10).toFixed(1);
+  el.innerHTML=`<table class="wk grp"><thead><tr><th>W${esc(last.week.slice(-2))}</th><th>plan</th><th>done</th><th>target</th><th class="avg">avg</th></tr></thead><tbody>${
+    Object.keys(GROUPS).map(k=>{ const t=targets.targets[k], d=g[k].done||0, ratio=t?Math.min(1,d/t):null;
+      return `<tr><td>${esc(k)}${t?`<span class="gbar"><i style="width:${Math.round(ratio*100)}%"></i></span>`:""}</td><td>${f(g[k].planned)}</td><td>${f(d)}</td>`
+        + `<td><input class="tg" type="number" inputmode="decimal" min="0" step="0.5" data-tg="${esc(k)}" value="${t??""}" placeholder="·" aria-label="Target for ${esc(k)}, hours a week"></td><td class="avg">${f(avg(k))}</td></tr>`; }).join("")
+  }</tbody></table><div class="src">Done: the calendar, less what you logged as skipped, plus the hours you gave at the end of a day. Avg: ordinary weeks. Targets are hours a week; the monthly tuning reads them.</div>`;
+}
+async function syncTargets(){
+  const remote=await ghGet("targets.json"); let rt={}, rAt=""; if(!remote.missing){ try{ const j=JSON.parse(remote.text); rt=j.targets||{}; rAt=j.updated||""; }catch(e){} }
+  if(!targets.dirty){ targets={targets:rt,dirty:false,updated:rAt}; ls.set("overblik.targets",targets); return; }
+  const put=await ghPut("targets.json", JSON.stringify({updated:new Date().toISOString(),targets:targets.targets},null,1)+"\n", remote.missing?null:remote.sha, "overblik: targets");
+  if(put.conflict) throw new Error("targets.json: written elsewhere; try again"); targets.dirty=false; ls.set("overblik.targets",targets);
+}
+// ---- the end of the day (26 Nov): hours not in the calendar, given per group with a tap each (half an hour per tap)
+const UNREC="_unrecorded";
+function unrecordedHours(day){
+  const ev=(day.events||[]).map(e=>[toMin(e.start),Math.max(toMin(e.end),toMin(e.start))]).sort((a,b)=>a[0]-b[0]);
+  const lo=ev.length?Math.min(ev[0][0],7*60):7*60, hi=22*60+30; let cov=0, cur=lo;
+  ev.forEach(([a,b])=>{ a=Math.max(a,cur); b=Math.min(b,hi); if(b>a){ cov+=b-a; cur=b; } });
+  return Math.max(0,Math.round((hi-lo-cov)/30)/2);
+}
+function renderUnrec(day, n){
+  const el=document.getElementById("t-unrec"); el.hidden=n.getHours()<19; if(el.hidden) return;
+  const date=ymd(n), have=((logBook.days[date]||{})[UNREC]||{}).hours||{}, given=Object.values(have).reduce((a,b)=>a+b,0), total=unrecordedHours(day);
+  el.innerHTML=`<div class="pk-h">Not in the calendar today: about ${total} h${given?` · ${given} h given`:""}</div><div class="ticks">${
+    Object.keys(GROUPS).map(g=>`<button class="tick" type="button" data-unrec="${esc(g)}" aria-pressed="${!!have[g]}">${esc(g)}${have[g]?` ${have[g]} h`:""}</button>`).join("")
+  }<button class="tick" type="button" data-unrec="">Clear</button></div>`;
+}
 // Hours per area from the weekly lines. The build week (W47) is shown but left out of the average: his decision of 22 Nov.
 const NOT_BASELINE=["2026-W47"];
 const AREAS=["Work","Training","Sport","S&M","Out","Praktisk","Hus","Fremtid","Tankebænken","Morning","Home"];
@@ -1086,9 +1130,9 @@ function renderWeek(){
     +(base.length?`Average of ${base.length} week${base.length===1?"":"s"}. `:"No ordinary week yet, so no average. ")+"From the calendar; overlaps are not netted out. Written each Sunday evening"+(weeklyFrom.startsWith("shadow/")?" (shadow run)":"")+".";
 }
 let renderHeld=false;   // a note being typed is not wiped by a re-render; the render waits until he leaves the field
-document.addEventListener("focusout",ev=>{ if(ev.target.matches&&ev.target.matches("input.ln, #e-text, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")&&renderHeld){ renderHeld=false; setTimeout(render,0); } });
+document.addEventListener("focusout",ev=>{ if(ev.target.matches&&ev.target.matches("input.ln, input.tg, #e-text, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")&&renderHeld){ renderHeld=false; setTimeout(render,0); } });
 function render(){
-  const a=document.activeElement; if(a&&a.matches&&a.matches("input.ln, #e-text, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")){ renderHeld=true; return; }
+  const a=document.activeElement; if(a&&a.matches&&a.matches("input.ln, input.tg, #e-text, #tb-j-text, #tb-j-where, #tb-b-title, #tb-b-author")){ renderHeld=true; return; }
   const n=now(); const day = withTraining(todayCard || templateDay(n) || { week:null, events:[], info:[] }, ymd(n));
   document.getElementById("h-date").textContent = n.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
   const wk = day.week || weekLetter(n), wkNote = wk && template && template.week_notes && template.week_notes[wk];
@@ -1173,7 +1217,7 @@ function render(){
   renderBeach(n);
   renderEvents();
   renderTb(n);
-  renderWeek();
+  renderWeek(); renderGroups(); renderUnrec(day, n);
   renderPacking();
   renderTabs();
 
@@ -1534,6 +1578,13 @@ document.querySelector(".wrap").addEventListener("click",ev=>{
 window.addEventListener("online",()=>sync("online"));
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden) sync("resume"); });
 document.getElementById("tabs").addEventListener("scroll",e=>e.currentTarget.classList.toggle("at-end", e.currentTarget.scrollLeft+e.currentTarget.clientWidth>=e.currentTarget.scrollWidth-2),{passive:true});
+document.querySelector(".wrap").addEventListener("click",ev=>{ const b=ev.target.closest("button[data-unrec]"); if(!b) return;
+  const date=ymd(now()), d=logBook.days[date]=logBook.days[date]||{}, cur={...((d[UNREC]||{}).hours||{})};
+  if(!b.dataset.unrec) Object.keys(cur).forEach(k=>delete cur[k]); else cur[b.dataset.unrec]=(cur[b.dataset.unrec]||0)+0.5;
+  d[UNREC]={ name:"Not in the calendar", hours:cur, at:new Date().toISOString() }; logBook.dirty=true; ls.set(LS.log,logBook); render(); sync("log"); });
+document.querySelector(".wrap").addEventListener("change",ev=>{ const i=ev.target.closest("input[data-tg]"); if(!i) return;
+  const v=parseFloat(i.value); if(isNaN(v)||v<=0) delete targets.targets[i.dataset.tg]; else targets.targets[i.dataset.tg]=Math.round(v*2)/2;
+  targets.dirty=true; ls.set("overblik.targets",targets); render(); sync("targets"); });
 document.getElementById("pk-toggle").addEventListener("click",()=>{ pkOpen=!pkOpen; ls.set("overblik.pkOpen",pkOpen); render(); });
 document.getElementById("pk-go").addEventListener("click",e=>{ e.preventDefault(); pkOpen=true; ls.set("overblik.pkOpen",true); showPage("todos"); document.getElementById("pk-sec").scrollIntoView({block:"start"}); });
 ["pk-when","pk-on"].forEach(id=>document.getElementById(id).addEventListener("change",renderPacking));

@@ -32,7 +32,9 @@ const TOMORROW = { date: '2026-01-07', week: 'A', generated: '2026-01-06T18:30:0
 const hours = o => ({ Work: 0, Training: 0, Sport: 0, ...o });
 const WEEKLY = [ { week: '2026-W47', hours: hours({ Work: 40, Training: 4, Sport: 8.5, Praktisk: 3 }) },
                  { week: '2026-W48', hours: hours({ Work: 38, Training: 3, Sport: 6, Praktisk: 2 }) },
-                 { week: '2026-W49', hours: hours({ Work: 36, Training: 5, Sport: 4, Praktisk: 1 }) } ].map(l => JSON.stringify(l)).join('\n') + '\n';
+                 { week: '2026-W49', hours: hours({ Work: 36, Training: 5, Sport: 4, Praktisk: 1 }),
+                   groups: { Work: { planned: 40, done: 36 }, Sport: { planned: 3, done: 9 }, People: { planned: 0, done: 4 }, Upkeep: { planned: 3.5, done: 1 },
+                             Mind: { planned: 7, done: 2 }, Rest: { planned: 0, done: 3 } } } ].map(l => JSON.stringify(l)).join('\n') + '\n';
 const STATE = { version: 1, appVersion: '1.1.1', stones: [], quarry: [],
   books: [ { id: 'b-0006', title: 'Kongens fald', author: 'J. V. Jensen', kind: 'easy', status: 'reading', earnedBy: null, addedAt: '2026-01-01T10:00:00.000Z', updatedAt: '2026-01-01T10:00:00.000Z' } ],
   readingLog: [], counters: { stone: 0, quarry: 0, book: 6, reading: 0, journal: 0 }, settings: {}, backup: {} };
@@ -163,13 +165,30 @@ const STATE = { version: 1, appVersion: '1.1.1', stones: [], quarry: [],
   });
   await check('Week: hours per area by week, the build week shown but not in the average', async () => {
     await page.click('#tabs [data-tab="week"]');
-    assert.deepStrictEqual(await page.$$eval('.wk thead th', els => els.map(e => e.textContent)), ['h', 'W47', 'W48', 'W49', 'avg']);
-    const rows = await page.$$eval('.wk tbody tr', els => els.map(e => [...e.children].map(c => c.textContent).join(' ')));
+    assert.deepStrictEqual(await page.$$eval('#wk .wk thead th', els => els.map(e => e.textContent)), ['h', 'W47', 'W48', 'W49', 'avg']);
+    const rows = await page.$$eval('#wk .wk tbody tr', els => els.map(e => [...e.children].map(c => c.textContent).join(' ')));
     assert.deepStrictEqual(rows, ['Work 40.0 38.0 36.0 37.0', 'Training 4.0 3.0 5.0 4.0', 'Sport 8.5 6.0 4.0 5.0', 'Praktisk 3.0 2.0 1.0 1.5'], 'areas with no hours in any week are left out');
-    assert.strictEqual(await page.$eval('.wk tfoot tr', e => [...e.children].map(c => c.textContent).join(' ')), 'Total 55.5 49.0 46.0 47.5');
+    assert.strictEqual(await page.$eval('#wk .wk tfoot tr', e => [...e.children].map(c => c.textContent).join(' ')), 'Total 55.5 49.0 46.0 47.5');
     assert.match(await page.textContent('#wk-src'), /^W47 was the build week: shown, not in the average\. Average of 2 weeks\..*\(shadow run\)\.$/);
   });
   await shot('3-week');
+  await check('Week: plan, done, target and average per group; a target is kept in targets.json', async () => {
+    const rows = await page.$$eval('#wk-g tbody tr', els => els.map(e => [...e.children].map(c => c.querySelector('input') ? (c.querySelector('input').value || '·') : c.textContent).join(' ')));
+    assert.deepStrictEqual(rows, ['Work 40.0 36.0 · 37.0', 'Sport 3.0 9.0 · 9.0', 'People 0.0 4.0 · 2.0', 'Upkeep 3.5 1.0 · 1.5', 'Mind 7.0 2.0 · 1.0', 'Rest 0.0 3.0 · 1.5'],
+      'the older line has no groups: its done is summed from its areas (W48 People 0, Mind 0, Rest 0)');
+    await page.fill('input[data-tg="Mind"]', '5'); await page.press('input[data-tg="Mind"]', 'Tab'); await idle();
+    assert.deepStrictEqual(JSON.parse(repos['overblik-data']['targets.json']).targets, { Mind: 5 });
+    assert.ok(await page.$('#wk-g tr:nth-child(5) .gbar i'), 'a bar shows done against the target');
+  });
+  await check('at the end of the day: hours not in the calendar, given per group with a tap', async () => {
+    await page.click('#tabs [data-tab="today"]');
+    assert.match(await page.textContent('#t-unrec .pk-h'), /^Not in the calendar today: about [\d.]+ h$/);
+    await page.click('#t-unrec [data-unrec="Rest"]'); await page.click('#t-unrec [data-unrec="Rest"]'); await page.click('#t-unrec [data-unrec="People"]'); await idle();
+    const row = JSON.parse(repos['overblik-data']['log.json']).days['2026-01-06']._unrecorded;
+    assert.deepStrictEqual(row.hours, { Rest: 1, People: 0.5 });
+    assert.match(await page.textContent('#t-unrec .pk-h'), / · 1.5 h given$/);
+    await page.click('#tabs [data-tab="week"]');
+  });
   await check('the evening Tankebænken row jumps to the Tankebænken page', async () => {
     await page.click('#tabs [data-tab="today"]');
     await page.click('#tl [data-tbgo="read"]');
